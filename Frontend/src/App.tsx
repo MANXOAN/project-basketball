@@ -19,6 +19,7 @@ import Privacy from "./pages/Privacy";
 import MyBookings from "./pages/MyBookings";
 import Profile from "./pages/Profile";
 import Paygate from "./pages/Paygate";
+import VnPaySandbox from "./pages/VnPaySandbox"; // 1. Đã thêm import trang giả lập VNPAY
 import AdminLayout from "./layouts/AdminLayout";
 import AdminBookings from "./pages/Admin/AdminBookings";
 import Dashboard from "./pages/Admin/Dashboard";
@@ -67,6 +68,9 @@ function App() {
             }
           />
         </Route>
+
+        {/* 2. Đã thêm Route VnPaySandbox độc lập ở đây */}
+        <Route path="/vnpay-sandbox" element={<VnPaySandbox />} />
 
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
