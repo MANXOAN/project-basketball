@@ -66,18 +66,27 @@ export default function Courts() {
                     c.name.trim().toLowerCase() === values.name.trim().toLowerCase() &&
                     c.id !== editingCourt?.id
             );
-
+    
             if (isDuplicate) {
                 message.error("Tên sân/cơ sở đã tồn tại, vui lòng chọn tên khác!");
                 return;
             }
-
+    
+            // Ép kiểu chuẩn hóa payload gửi lên backend
+            const payload = {
+                ...values,
+                price: Number(values.price) || 0,
+                type: values['Loại Sân'] || values.type,
+                // Nếu backend bắt buộc có fieldId dạng số, gán giá trị mặc định (ví dụ: 1) hoặc lấy từ fieldId
+                fieldId: values.fieldId ? Number(values.fieldId) : 1 
+            };
+    
             if (editingCourt) {
-                const res = await axios.put(`${API_URL}/api/courts/${editingCourt.id}`, values);
+                const res = await axios.put(`${API_URL}/api/courts/${editingCourt.id}`, payload);
                 setData(data.map(item => item.id === editingCourt.id ? res.data : item));
                 message.success("Cập nhật sân thành công!");
             } else {
-                const res = await axios.post(`${API_URL}/api/courts`, values);
+                const res = await axios.post(`${API_URL}/api/courts`, payload);
                 setData([...data, res.data]);
                 message.success("Thêm sân mới thành công!");
             }
