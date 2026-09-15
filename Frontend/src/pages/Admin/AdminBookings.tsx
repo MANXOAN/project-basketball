@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider } from "antd";
 import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, RefreshCcw, Download, Plus, Zap } from "lucide-react";
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
@@ -55,6 +55,9 @@ export default function AdminBookings() {
   const handlePosSubmit = async (values: any) => {
     try {
       const st = values.time.format('HH:mm');
+      const [h, m] = st.split(':').map(Number);
+      const endTime = `${String(h + values.duration).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
       const court = courts.find(c => c.id === values.courtId);
       await api.post('/bookings', {
         fieldId: court?.fieldId || 1,
