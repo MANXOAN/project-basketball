@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, CreditCard, Loader2, WalletCards } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { Loader2, CalendarDays } from "lucide-react";
 import { api, Booking, formatCurrency, formatSlotRange } from "../lib/api";
 import { formatDateVi } from "../lib/locale";
 import { getUser } from "../lib/auth";
@@ -13,35 +13,10 @@ const statusMap: Record<string, { label: string; className: string }> = {
   completed: { label: "Hoàn thành", className: "bg-blue-100 text-blue-700" },
 };
 
-type BookingFilter = "all" | "unpaid" | "confirmed" | "cancelled" | "completed";
-
-const paymentStatusMap: Record<string, { label: string; className: string }> = {
-  paid: { label: "Đã thanh toán", className: "bg-emerald-100 text-emerald-700" },
-  deposit_paid: { label: "Đã cọc 30%", className: "bg-blue-100 text-blue-700" },
-  refunded: { label: "Đã hoàn tiền", className: "bg-slate-100 text-slate-600" },
-  unpaid: { label: "Chưa thanh toán", className: "bg-amber-100 text-amber-700" },
-};
-
-const filterOptions: { value: BookingFilter; label: string }[] = [
-  { value: "all", label: "Tất cả" },
-  { value: "unpaid", label: "Chờ thanh toán" },
-  { value: "confirmed", label: "Đã xác nhận" },
-  { value: "cancelled", label: "Đã hủy" },
-  { value: "completed", label: "Hoàn thành" },
-];
-
 export default function MyBookings() {
-  const navigate = useNavigate();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<BookingFilter>("all");
   const user = getUser();
-
-  const filteredBookings = useMemo(() => bookings.filter((booking) => {
-    if (activeFilter === "all") return true;
-    if (activeFilter === "unpaid") return booking.paymentStatus !== "paid" && booking.paymentStatus !== "deposit_paid" && booking.paymentStatus !== "refunded";
-    return booking.status === activeFilter;
-  }), [activeFilter, bookings]);
 
   const [cancelModal, setCancelModal] = useState({ isOpen: false, bookingId: 0, stk: "", bank: "" });
   const [qrModal, setQrModal] = useState<{ isOpen: boolean, code: string | null }>({ isOpen: false, code: null });
@@ -133,10 +108,6 @@ export default function MyBookings() {
     }
   };
 
-  const payBooking = (booking: Booking) => {
-    navigate(`/payment/${booking.id}`);
-  };
-
   if (loading) {
     return (
       <div className="flex justify-center py-32">
@@ -155,44 +126,33 @@ export default function MyBookings() {
         Xin chào {user?.fullName || user?.email}
       </p>
 
-      <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
-        {filterOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => setActiveFilter(option.value)}
-            className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${activeFilter === option.value ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" : "text-gray-500 hover:bg-blue-50 hover:text-blue-700"}`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      {filteredBookings.length === 0 ? (
+      {bookings.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-gray-400">
-          {bookings.length === 0 ? "Chưa có đơn nào." : "Không có đơn phù hợp với bộ lọc."}{" "}
+          Chưa có đơn nào.{" "}
           <Link to="/fields" className="text-blue-600 font-semibold">
             Đặt sân ngay
           </Link>
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredBookings.map((b) => {
+          {bookings.map((b) => {
             const st = statusMap[b.status] || statusMap.pending;
-            const payment = paymentStatusMap[b.paymentStatus] || paymentStatusMap.unpaid;
-            const canPay = b.status === "pending" && !["paid", "deposit_paid", "refunded"].includes(b.paymentStatus);
             return (
               <div
                 key={b.id}
-                className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm"
               >
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white px-6 py-4">
-                  <span className="font-extrabold tracking-wide text-blue-700">
+                <div className="flex flex-wrap justify-between gap-3 mb-3">
+                  <span className="font-bold text-green-700">
                     BK{String(b.id).padStart(6, "0")}
                   </span>
-                  <div className="flex flex-wrap gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${st.className}`}>{st.label}</span><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${payment.className}`}>{payment.label}</span></div>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full ${st.className}`}
+                  >
+                    {st.label}
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 gap-3 px-6 py-5 text-sm sm:grid-cols-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-400">Cơ sở: </span>
                     <span className="font-semibold">{b.fieldName}</span>
@@ -218,7 +178,13 @@ export default function MyBookings() {
                     <span className="text-gray-400">Khách đặt: </span>
                     <span className="font-semibold">{b.customer?.fullName} ({b.customer?.phone})</span>
                   </div>
-                  <div><span className="text-gray-400">Phương thức: </span><span className="font-semibold">{b.paymentMethod === "deposit" || b.paymentMethod === "full" ? "Online" : "Tại sân"}</span></div>
+                  <div>
+                    <span className="text-gray-400">Thanh toán: </span>
+                    <span className="font-semibold">
+                      {b.paymentMethod === "deposit" || b.paymentMethod === "full" ? "Online" : "Tại sân"} ·{" "}
+                      {b.paymentMethod === "deposit" ? "Đã cọc 30%" : b.paymentMethod === "full" ? "Đã thanh toán 100%" : "Chưa TT"}
+                    </span>
+                  </div>
                   {b.status === "cancelled" && (
                     <div className="sm:col-span-2 mt-1">
                       <span className="text-sm font-bold text-red-600 bg-red-50 px-3 py-1 rounded-full">
@@ -241,12 +207,11 @@ export default function MyBookings() {
                     </div>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-3 border-t border-gray-100 px-6 py-4">
-                  {canPay ? <button onClick={() => payBooking(b)} className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"><CreditCard className="h-4 w-4" /> Thanh toán ngay</button> : null}
+                <div className="mt-4 flex flex-wrap gap-4">
                   {b.status === "pending" || b.status === "confirmed" ? (
                     <button
                       onClick={() => openCancelModal(b.id)}
-                      className="rounded-xl border border-red-100 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                      className="text-sm font-semibold text-red-600 hover:underline"
                     >
                       Hủy đơn
                     </button>
@@ -254,16 +219,16 @@ export default function MyBookings() {
                   {b.status === "pending" || b.status === "confirmed" ? (
                     <button
                       onClick={() => extendOneHour(b)}
-                      className="rounded-xl border border-blue-100 px-4 py-2.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+                      className="text-sm font-semibold text-blue-600 hover:underline"
                     >
                       Thuê thêm 1 giờ
                     </button>
                   ) : null}
                   <Link
                     to={`/booking?fieldId=${b.fieldId}&courtId=${b.courtId}`}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50"
+                    className="text-sm font-semibold text-gray-600 hover:underline"
                   >
-                    <WalletCards className="h-4 w-4" /> Đặt lại sân này
+                    Đặt lại sân này
                   </Link>
                 </div>
               </div>
