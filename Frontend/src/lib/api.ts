@@ -1,7 +1,8 @@
 import axios from "axios";
 import { cachedGet, invalidateApiCache } from "./apiCache";
 
-export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+// src/lib/api.ts
+export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 export const api = axios.create({
   baseURL: API_URL,

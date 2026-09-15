@@ -27,13 +27,29 @@ export default function AdminEmployees() {
 
     const handleCreate = async (values: any) => {
         try {
-            await api.post("/users", { ...values, password: "hash-password-123" }); // Simulated
+            const payload = {
+                name: values.fullName || values.name,
+                fullName: values.fullName || values.name,
+                email: values.email,
+                password: values.password || "12345678",
+                phone: values.phone || "0900000000",
+                role: values.role || "staff",
+            };
+    
+            await api.post("/register", payload);
+    
             message.success("Tạo nhân viên thành công!");
             setIsModalOpen(false);
             form.resetFields();
             fetchUsers();
-        } catch {
-            message.error("Lỗi!");
+        } catch (error: any) {
+            // Bắt thông báo lỗi từ Backend trả về (ví dụ: "Email already exists")
+            const errorMsg = error.response?.data?.message || "Lỗi khi tạo nhân viên!";
+            if (errorMsg.includes("Email already exists")) {
+                message.error("Email này đã được sử dụng. Vui lòng nhập email khác!");
+            } else {
+                message.error(errorMsg);
+            }
         }
     };
 
