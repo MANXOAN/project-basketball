@@ -30,6 +30,7 @@ import AdminVouchers from "./pages/Admin/AdminVouchers";
 import AdminEmployees from "./pages/Admin/AdminEmployees";
 import ClientLayout from "./layouts/ClientLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import VnPayReturn from "./pages/VnPayReturn";
 
 function App() {
   return (
@@ -71,6 +72,7 @@ function App() {
 
         {/* 2. Đã thêm Route VnPaySandbox độc lập ở đây */}
         <Route path="/vnpay-sandbox" element={<VnPaySandbox />} />
+        <Route path="/vnpay-return" element={<VnPayReturn />} />
 
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
