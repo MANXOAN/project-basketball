@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Smartphone } from "lucide-react";
 import { formatCurrency, api } from "../lib/api";
@@ -10,10 +10,29 @@ export default function Paygate() {
     const [loading, setLoading] = useState(false);
     const [tab, setTab] = useState<"momo" | "card" | "transfer">("momo");
 
+    // State thời gian đếm ngược: 15 phút = 900 giây
+    const [timeLeft, setTimeLeft] = useState(15 * 60);
+
     const payload = location.state?.payload;
-    const bookingId = location.state?.bookingId as number | undefined;
     const deposit = location.state?.deposit;
     const total = location.state?.total;
+
+    // Đếm ngược mỗi giây
+    useEffect(() => {
+        if (timeLeft <= 0) return;
+        const timer = setInterval(() => {
+            setTimeLeft((prev) => prev - 1);
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [timeLeft]);
+
+    // Format số giây sang kiểu MM:SS (ví dụ 14:59)
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    };
 
     if (!payload) {
         return (
@@ -24,35 +43,26 @@ export default function Paygate() {
         );
     }
 
+    const amountToPay = payload.paymentMethod === "deposit" ? deposit : total;
+
     const handleConfirmPayment = async (isAuto = false) => {
         setLoading(true);
         try {
-            let orderId = bookingId;
-            if (!orderId) {
-                const res = await api.post("/bookings", payload);
-                orderId = res.data.id;
-            }
+            const res = await api.post("/bookings", payload);
 
             if (tab === "card") {
                 const vnpayRes = await api.post("/vnpay/create-url", {
                     amount: amountToPay,
-                    orderId,
+                    orderId: res.data.id
                 });
                 window.location.href = vnpayRes.data.paymentUrl;
                 return;
             }
 
-            if (bookingId) {
-                await api.patch(`/bookings/${bookingId}`, {
-                    paymentStatus: "paid",
-                    status: "confirmed",
-                  });
-            }
-
             toast.success(isAuto && tab === "transfer" ? "Chuyển khoản thành công!" : "Thanh toán & Đặt sân thành công!");
             navigate("/booking", {
                 state: {
-                    successId: orderId,
+                    successId: res.data.id,
                     paymentMethod: payload.paymentMethod,
                     payload,
                     isAutoTransfer: isAuto && tab === "transfer"
@@ -64,25 +74,11 @@ export default function Paygate() {
         }
     };
 
-    const amountToPay = payload.paymentMethod === "deposit" ? deposit : total;
-
-    useEffect(() => {
-        let timeout: ReturnType<typeof setTimeout>;
-        if (tab === "transfer" || tab === "momo") {
-            // Giả lập webhook/polling: Đợi 15 giây để người dùng có thời gian "giả vờ" rứt điện thoại ra quét và bấm chuyển khoản, sau đó tự auto-redirect.
-            timeout = setTimeout(() => {
-                handleConfirmPayment(true);
-            }, 15000);
-        }
-        return () => clearTimeout(timeout);
-        // eslint-disable-next-line
-    }, [tab]);
-
-    // Cấu hình Ngân hàng thật của bạn ở đây để QR quét ra chuẩn
-    const BANK_ID = "MB"; // Mbbank, vietcombank, vietinbank, tpbank...
+    // Cấu hình Ngân hàng
+    const BANK_ID = "MB"; 
     const ACCOUNT_NO = "5510355155442";
     const ACCOUNT_NAME = "NGUYEN THANH TU";
-    const addInfo = `DATSAN ${payload.customer.phone}`;
+    const addInfo = `DATSAN ${payload.customer?.phone || ""}`;
     const vietQrUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-compact2.png?amount=${amountToPay}&addInfo=${encodeURIComponent(addInfo)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
 
     return (
@@ -128,8 +124,7 @@ export default function Paygate() {
                             <img src="https://upload.wikimedia.org/wikipedia/vi/f/fe/MoMo_Logo.png" alt="MoMo" className="h-10 mx-auto mb-4" />
                             <p className="font-bold text-gray-800 mb-2">Quét mã MoMo</p>
                             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm w-48 h-48 mx-auto flex items-center justify-center mb-4">
-                                {/* Auto generate dummy momo QR based on amount */}
-                                <img onClick={() => handleConfirmPayment(true)} src={`https://quickchart.io/qr?text=MOMO-${amountToPay}-${payload.customer.phone}&size=200&ecLevel=H`} alt="Momo QR" className="w-full h-full object-contain cursor-pointer hover:opacity-80 transition-opacity title='Nhấn vào mã QR sau khi thanh toán để giả lập thành công'" title="Nhấn vào mã QR sau khi thanh toán để giả lập thành công" />
+                                <img onClick={() => handleConfirmPayment(true)} src={`https://quickchart.io/qr?text=MOMO-${amountToPay}-${payload.customer?.phone}&size=200&ecLevel=H`} alt="Momo QR" className="w-full h-full object-contain cursor-pointer hover:opacity-80 transition-opacity" title="Nhấn vào mã QR sau khi thanh toán để giả lập thành công" />
                             </div>
                             <p className="text-xs text-gray-500 max-w-xs mx-auto">
                                 Mở ứng dụng MoMo trên điện thoại và dùng tính năng Quét mã để thanh toán.
@@ -145,7 +140,6 @@ export default function Paygate() {
                             <h3 className="font-extrabold text-blue-800 text-lg mb-2">Thanh toán an toàn qua VNPAY</h3>
                             <p className="text-sm text-gray-600 max-w-sm mx-auto">
                                 Cổng thanh toán quốc gia VNPAY hỗ trợ thẻ ATM nội địa, Visa, MasterCard và JCB.
-                                Bạn sẽ được chuyển hướng sang trang web bảo mật của VNPAY để nhập thẻ.
                             </p>
                         </div>
                     )}
@@ -182,12 +176,14 @@ export default function Paygate() {
                     ) : (
                         <div className="flex flex-col items-center justify-center p-4 bg-blue-50 text-blue-700 rounded-xl max-w-sm mx-auto border border-blue-100">
                             <Loader2 className="w-5 h-5 animate-spin mb-2" />
-                            <span className="font-medium text-sm">Hệ thống đang tự động chờ nhận tiền... (Tự động cập nhật sau 15s)</span>
+                            <span className="font-medium text-sm text-center">
+                                Hệ thống đang tự động chờ nhận tiền... <br/>
+                                (Hết hạn thanh toán sau: <b className="text-red-600">{formatTime(timeLeft)}</b>)
+                            </span>
                         </div>
                     )}
                 </div>
             </div>
-
         </div>
     );
 }

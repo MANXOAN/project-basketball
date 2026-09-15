@@ -3,6 +3,7 @@ import crypto from "crypto";
 import Booking from "../models/Booking";
 
 const router = express.Router();
+const moment = require('moment');
 
 function sortObject(obj) {
     const sorted = {};
@@ -20,57 +21,67 @@ function sortObject(obj) {
     return sorted;
 }
 
-router.post("/create-url", (req, res) => {
-    const { amount, orderId } = req.body;
-    const ipAddr = req.headers["x-forwarded-for"] || req.connection?.remoteAddress || "127.0.0.1";
+router.post('/create-url', function (req, res, next) {
+    try {
+        const date = new Date();
+        const createDate = moment(date).format('YYYYMMDDHHmmss');
+        
+        const ipAddr = req.headers['x-forwarded-for'] ||
+            req.connection.remoteAddress ||
+            req.socket.remoteAddress ||
+            req.connection.socket.remoteAddress;
 
-    const tmnCode = "R1DITFBO";
-    const secretKey = "RMBXMXZIVOMZUSLOHLUKROVOTLWHNUIZ";
-    // Error 72 occurs because public VNPAY keys often expire or get blocked.
-    // Instead of real VNPAY URL, we redirect to a local simulated VNPAY page for demonstration:
-    const returnUrl = "http://localhost:5173/vnpay-return";
+        const tmnCode = process.env.VNP_TMNCODE || "CGXZR224";
+        const secretKey = process.env.VNP_HASHSECRET || "YOUR_HASH_SECRET";
+        
+        // 1. KHAI BÁO BIẾN vnpUrl NÀY (Đang bị thiếu gây ra lỗi)
+        let vnpUrl = "http://localhost:5173/vnpay-sandbox";
+        const returnUrl = process.env.VNP_RETURN_URL || "http://localhost:5173/paygate";
 
-    const date = new Date();
-    const createDate =
-        date.getFullYear() +
-        ("0" + (date.getMonth() + 1)).slice(-2) +
-        ("0" + date.getDate()).slice(-2) +
-        ("0" + date.getHours()).slice(-2) +
-        ("0" + date.getMinutes()).slice(-2) +
-        ("0" + date.getSeconds()).slice(-2);
+        const orderId = req.body.orderId || moment(date).format('DDHHmmss');
+        const amount = req.body.amount;
+        const bankCode = req.body.bankCode;
+        
+        let locale = req.body.language;
+        if (!locale || locale === '') {
+            locale = 'vn';
+        }
+        const currCode = 'VND';
+        let vnp_Params = {};
+        vnp_Params['vnp_Version'] = '2.1.0';
+        vnp_Params['vnp_Command'] = 'pay';
+        vnp_Params['vnp_TmnCode'] = tmnCode;
+        vnp_Params['vnp_Locale'] = locale;
+        vnp_Params['vnp_CurrCode'] = currCode;
+        vnp_Params['vnp_TxnRef'] = orderId;
+        vnp_Params['vnp_OrderInfo'] = 'Thanh toan cho ma don hang:' + orderId;
+        vnp_Params['vnp_OrderType'] = 'other';
+        vnp_Params['vnp_Amount'] = amount * 100;
+        vnp_Params['vnp_ReturnUrl'] = returnUrl;
+        vnp_Params['vnp_IpAddr'] = ipAddr;
+        vnp_Params['vnp_CreateDate'] = createDate;
+        if (bankCode !== null && bankCode !== '' && bankCode !== undefined) {
+            vnp_Params['vnp_BankCode'] = bankCode;
+        }
 
-    let vnp_Params = {
-        "vnp_Version": "2.1.0",
-        "vnp_Command": "pay",
-        "vnp_TmnCode": tmnCode,
-        "vnp_Locale": "vn",
-        "vnp_CurrCode": "VND",
-        "vnp_TxnRef": orderId + "_" + date.getTime(), // avoid duplicate TxnRef
-        "vnp_OrderInfo": "Thanh toan don dat san " + orderId,
-        "vnp_OrderType": "other",
-        "vnp_Amount": amount * 100,
-        "vnp_ReturnUrl": returnUrl,
-        "vnp_IpAddr": ipAddr.split(":")[0] || "127.0.0.1",
-        "vnp_CreateDate": createDate,
-    };
+        vnp_Params = sortObject(vnp_Params);
 
-    vnp_Params = sortObject(vnp_Params);
+        const querystring = require('qs');
+        const crypto = require("crypto");     
+        const signData = querystring.stringify(vnp_Params, { encode: false });
+        const hmac = crypto.createHmac("sha512", secretKey);
+        const signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
+        vnp_Params['vnp_SecureHash'] = signed;
 
-    // Instead of using URLSearchParams which has issues with replacing standard spaces, we just serialize it manually.
-    const signData = Object.entries(vnp_Params)
-        .map(([k, v]) => `${k}=${v}`)
-        .join("&");
+        // 2. Nối chuỗi vào vnpUrl đã khai báo
+        vnpUrl += '?' + querystring.stringify(vnp_Params, { encode: false });
 
-    const hmac = crypto.createHmac("sha512", secretKey);
-    const signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
-
-    vnp_Params["vnp_SecureHash"] = signed;
-
-    const finalUrl = vnpUrl + "?" + Object.entries(vnp_Params)
-        .map(([k, v]) => `${k}=${v}`)
-        .join("&");
-
-    return res.json({ paymentUrl: finalUrl });
+        // Trả về kết quả cho Frontend
+        return res.json({ paymentUrl: vnpUrl });
+    } catch (error) {
+        console.error("Lỗi VNPAY:", error);
+        return res.status(500).json({ message: "Lỗi tạo link thanh toán", error: error.message });
+    }
 });
 
 router.get("/return", async (req, res) => {
