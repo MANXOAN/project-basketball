@@ -75,7 +75,8 @@ export default function AdminLayout() {
                 style={{ height: 'calc(100vh - 56px)' }}
             >
                 <div className="h-24 flex items-center justify-center mb-2 px-4 mt-4">
-                    <Link to="/admin/dashboard" className="flex items-center gap-3 group">
+                    {/* Đã đổi to="/admin/dashboard" thành to="/" */}
+                    <Link to="/" className="flex items-center gap-3 group">
                         <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-[1rem] flex justify-center items-center shadow-lg shadow-blue-500/30 text-white font-black text-2xl transition-transform group-hover:scale-110 group-hover:rotate-3">
                             A
                         </div>
