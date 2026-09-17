@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Smartphone } from "lucide-react";
 import { formatCurrency, api } from "../lib/api";
 import toast from "react-hot-toast";
+import axios from "axios";
 
 export default function Paygate() {
     const location = useLocation();
@@ -46,15 +47,23 @@ export default function Paygate() {
     const amountToPay = payload.paymentMethod === "deposit" ? deposit : total;
 
     const handleConfirmPayment = async (isAuto = false) => {
+        if (tab === "card" && (!Number.isInteger(Number(amountToPay)) || Number(amountToPay) <= 0)) {
+            toast.error("Số tiền thanh toán không hợp lệ");
+            return;
+        }
         setLoading(true);
         try {
             const res = await api.post("/bookings", payload);
 
             if (tab === "card") {
                 const vnpayRes = await api.post("/vnpay/create-url", {
-                    amount: amountToPay,
-                    orderId: res.data.id
+                    amount: Number(amountToPay),
+                    orderId: String(res.data.id),
+                    language: "vn",
                 });
+                if (!vnpayRes.data?.paymentUrl) {
+                    throw new Error("Backend không trả về liên kết VNPay");
+                }
                 window.location.href = vnpayRes.data.paymentUrl;
                 return;
             }
@@ -68,8 +77,11 @@ export default function Paygate() {
                     isAutoTransfer: isAuto && tab === "transfer"
                 }
             });
-        } catch (error: any) {
-            toast.error(error?.response?.data?.message || "Thanh toán thất bại");
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error)
+                ? error.response?.data?.message
+                : error instanceof Error ? error.message : undefined;
+            toast.error(message || "Thanh toán thất bại");
             setLoading(false);
         }
     };
@@ -109,7 +121,7 @@ export default function Paygate() {
                             onClick={() => setTab("card")}
                             className={`flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center transition ${tab === "card" ? "bg-white text-blue-600 shadow" : "text-gray-500 hover:text-gray-700"}`}>
                             <CreditCard className="w-4 h-4 mr-2" />
-                            Thẻ Băng/ATM
+                            Thẻ ATM/Visa
                         </button>
                         <button
                             onClick={() => setTab("transfer")}
@@ -137,9 +149,9 @@ export default function Paygate() {
                             <div className="mb-4 text-center">
                                 <CreditCard className="w-12 h-12 text-blue-600 mx-auto mb-2" />
                             </div>
-                            <h3 className="font-extrabold text-blue-800 text-lg mb-2">Thanh toán an toàn qua VNPAY</h3>
+                            <h3 className="font-extrabold text-blue-800 text-lg mb-2">Thanh toán qua VNPay Sandbox</h3>
                             <p className="text-sm text-gray-600 max-w-sm mx-auto">
-                                Cổng thanh toán quốc gia VNPAY hỗ trợ thẻ ATM nội địa, Visa, MasterCard và JCB.
+                                Bạn sẽ được chuyển đến cổng VNPay thử nghiệm để nhập thông tin thẻ test.
                             </p>
                         </div>
                     )}
@@ -161,7 +173,7 @@ export default function Paygate() {
 
                     <p className="text-xs text-amber-600 mb-4 text-center font-medium bg-amber-50 rounded-lg p-2 max-w-sm mx-auto">
                         * MoMo/Chuyển khoản (Sandbox) giả lập giao dịch.<br /> Vui lòng <b>nhấn trực tiếp vào mã QR</b> để xác nhận đã thanh toán xong.<br />
-                        * VNPAY sẽ chuyển sang trang VNPay test. Vui lòng nhập thẻ test của VNPAY.
+                        * VNPay Sandbox sẽ chuyển sang trang thanh toán thử nghiệm. Vui lòng dùng thẻ test của VNPay.
                     </p>
 
                     {tab === "card" ? (
