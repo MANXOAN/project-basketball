@@ -16,6 +16,8 @@ const DURATIONS = [
   { label: "2 giờ", value: 2 },
 ];
 
+const CLOSING_TIME = 21; // Sân đóng cửa lúc 21:00
+
 export default function Booking() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -48,6 +50,28 @@ export default function Booking() {
   const [endDate, setEndDate] = useState("");
   const [balls, setBalls] = useState(0);
   const [bibs, setBibs] = useState(0);
+
+  // Helper tính thời gian kết thúc dựa trên giờ bắt đầu và thời lượng thuê
+  const getEndTime = (startTime: string, dur: number): number => {
+    const [hours, minutes] = startTime.split(":").map(Number);
+    return hours + minutes / 60 + dur;
+  };
+
+  // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa (21:00) hay không
+  const isDurationValid = (dur: number): boolean => {
+    if (!time) return true;
+    return getEndTime(time, dur) <= CLOSING_TIME;
+  };
+
+  // Tự động điều chỉnh thời lượng về mức hợp lệ nhỏ nhất (1 giờ) nếu chuyển sang giờ muộn
+  useEffect(() => {
+    if (time && !isDurationValid(duration)) {
+      const validOption = DURATIONS.find((d) => isDurationValid(d.value));
+      if (validOption) {
+        setDuration(validOption.value);
+      }
+    }
+  }, [time]);
 
   const recurringDates = useMemo(() => {
     if (!date) return [];
@@ -163,7 +187,7 @@ export default function Booking() {
 
       const v = vouchers[0];
       if (v.used >= v.limit) {
-        toast.error("Mã giảm giá đã hết luợt sử dụng!");
+        toast.error("Mã giảm giá đã hết lượt sử dụng!");
         setAppliedVoucher(null);
         return;
       }
@@ -255,7 +279,7 @@ export default function Booking() {
       courtId: selectedCourt.id,
       fieldName: field.name,
       court: selectedCourt.name,
-      date, // Pass the starting date, backend might need to handle this or we generate an array of payloads
+      date,
       recurringDates,
       time,
       duration,
@@ -269,14 +293,13 @@ export default function Booking() {
       },
       services,
       paymentMethod,
-      paymentStatus: paymentMethod === "deposit" ? "deposit_paid" : "paid", // Đồng bộ trạng thái thanh toán
-      status: "pending", // Lúc mới đặt sân thì trạng thái là chờ xác nhận
+      paymentStatus: paymentMethod === "deposit" ? "deposit_paid" : "paid",
+      status: "pending",
       voucherCode: appliedVoucher?.code || "",
       discount: appliedVoucher?.discountAmount || 0,
       createdAt: new Date().toISOString(),
     };
 
-    // Navigate to paygate to complete payment online
     navigate("/paygate", { state: { payload, deposit, total } });
   };
 
@@ -437,20 +460,31 @@ export default function Booking() {
             <div>
               <label className="block text-sm font-semibold text-gray-600 mb-2">Thời lượng</label>
               <div className="flex gap-2">
-                {DURATIONS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => setDuration(d.value)}
-                    className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${duration === d.value
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "border-gray-200 text-gray-600 hover:border-blue-400"
-                      }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+                {DURATIONS.map((d) => {
+                  const disabled = !time || !isDurationValid(d.value);
+                  return (
+                    <button
+                      key={d.value}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setDuration(d.value)}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${duration === d.value && !disabled
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : disabled
+                          ? "bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed opacity-60"
+                          : "border-gray-200 text-gray-600 hover:border-blue-400"
+                        }`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
               </div>
+              {time && getEndTime(time, 1) >= CLOSING_TIME && (
+                <p className="text-xs text-amber-600 mt-2 font-medium">
+                  * Sân đóng cửa lúc {CLOSING_TIME}:00 nên khung giờ này chỉ có thể đặt tối đa 1 giờ.
+                </p>
+              )}
             </div>
           </div>
 
@@ -569,8 +603,6 @@ export default function Booking() {
                 </div>
               </label>
             </div>
-
-
           </div>
         </div>
 
