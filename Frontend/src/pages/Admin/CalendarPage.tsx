@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Calendar, Badge, Spin } from "antd";
+import { Calendar, Spin } from "antd";
 import type { Dayjs } from "dayjs";
 import { api, Booking } from "../../lib/api";
-import { Info } from "lucide-react";
+import { Info, CalendarDays, CircleCheck, Clock3 } from "lucide-react";
 
 export default function CalendarPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -63,21 +63,22 @@ export default function CalendarPage() {
     <div className="animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-black bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent tracking-tight flex items-center gap-2">
+          <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><CalendarDays size={14} /> Schedule control</div>
+          <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
             Lịch Phân Bổ Sân
           </h1>
           <p className="text-gray-500 mt-2 font-medium">Theo dõi lịch đặt sân trực quan theo từng ngày trong tháng</p>
         </div>
-        <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 text-sm font-medium"><Badge status="success" /> Đã duyệt</div>
-          <div className="flex items-center gap-2 text-sm font-medium"><Badge status="warning" /> Chờ duyệt</div>
+        <div className="flex items-center gap-3 bg-zinc-900 px-4 py-3 rounded-2xl shadow-xl border border-white/10">
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-400"><CircleCheck size={14} /> Đã duyệt</div>
+          <div className="flex items-center gap-2 text-xs font-bold text-amber-400"><Clock3 size={14} /> Chờ duyệt</div>
         </div>
       </div>
 
-      <div className="bg-white/80 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 overflow-hidden backdrop-blur-xl">
+      <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden backdrop-blur-xl">
         <div className="mb-4 text-gray-500 text-sm flex items-center gap-2 px-4 pt-2">
-          <Info size={16} className="text-violet-500" />
-          <span>Có tổng cộng <strong className="text-violet-600 font-black">{bookings.length}</strong> ca đặt sân đang hoạt động trong hệ thống.</span>
+          <Info size={16} className="text-yellow-400" />
+          <span>Có tổng cộng <strong className="text-yellow-400 font-black">{bookings.length}</strong> ca đặt sân đang hoạt động trong hệ thống.</span>
         </div>
         <Calendar
           cellRender={dateCellRender}
@@ -102,7 +103,7 @@ export default function CalendarPage() {
             border-radius: 4px;
         }
         .custom-calendar .ant-picker-cell-selected .ant-picker-cell-inner {
-            background-color: #eff6ff !important;
+            background-color: rgba(245,197,66,0.12) !important;
             border-radius: 12px !important;
         }
         .custom-calendar .ant-picker-calendar-date-value {
@@ -110,10 +111,10 @@ export default function CalendarPage() {
              color: #475569;
         }
         .custom-calendar .ant-picker-cell-selected .ant-picker-calendar-date-value {
-             color: #2563eb;
+             color: #f5c542;
         }
         .custom-calendar .ant-picker-cell-today .ant-picker-calendar-date-value {
-             background: #2563eb;
+             background: #f5c542;
              color: white;
              border-radius: 50%;
              width: 28px;

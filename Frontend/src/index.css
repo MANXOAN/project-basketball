@@ -1,102 +1,154 @@
 @import "tailwindcss";
-.ant-layout {
-    background: #f8fafc !important;
+
+/* ─── CSS Variables ─── */
+:root {
+  --primary: #f5c542;
+  --primary-dark: #d69e12;
+  --accent: #16a34a;
+  --accent-dark: #15803d;
+  --surface: #f8fafc;
+  --card-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  --card-shadow-hover: 0 12px 40px rgba(0,0,0,0.14);
 }
+
+/* ─── Animations ─── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); }
+}
+
+.animate-fade-in-up { animation: fadeInUp 0.5s ease both; }
+.animate-fade-in { animation: fadeIn 0.4s ease both; }
+.animate-slide-in-left { animation: slideInLeft 0.4s ease both; }
+.animate-pulse-glow { animation: pulse-glow 2s infinite; }
+
+/* ─── Stagger delays ─── */
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+
+/* ─── AntD Overrides ─── */
+.ant-layout { background: #f8fafc !important; }
 .ant-modal-content {
-    border-radius: 24px !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
-    padding: 24px !important;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px !important;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25) !important;
+  padding: 24px !important;
 }
-
 .ant-modal-header {
-    border-bottom: 2px dashed #f1f5f9;
-    padding-bottom: 16px;
-    margin-bottom: 16px;
-}
-.modern-table .ant-table {
-    background: transparent !important;
+  border-bottom: 2px dashed #f1f5f9;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  background: transparent;
 }
 
-.modern-table .ant-table-thead>tr>th {
-    background-color: transparent !important;
-    color: #64748b !important;
-    font-weight: 800 !important;
-    font-size: 13px !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid #e2e8f0 !important;
+.modern-table .ant-table { background: transparent !important; }
+.modern-table .ant-table-thead > tr > th {
+  background-color: transparent !important;
+  color: #64748b !important;
+  font-weight: 800 !important;
+  font-size: 13px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid #e2e8f0 !important;
+}
+.modern-table .ant-table-tbody > tr > td {
+  border-bottom: 1px dashed #e2e8f0 !important;
+  transition: all 0.3s ease;
+  font-size: 15px;
+}
+.modern-table .ant-table-tbody > tr:hover > td {
+  background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%) !important;
 }
 
-.modern-table .ant-table-tbody>tr>td {
-    border-bottom: 1px dashed #e2e8f0 !important;
-    transition: all 0.3s ease;
-    font-size: 15px;
+.ant-input, .ant-select-selector, .ant-input-number {
+  border-radius: 12px !important;
+  border: 1.5px solid #e2e8f0 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important;
+  transition: all 0.2s ease !important;
+  height: 44px !important;
+  display: flex;
+  align-items: center;
+}
+.ant-input:focus, .ant-input:hover,
+.ant-select-selector:hover, .ant-select-selector:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.1) !important;
 }
 
-.modern-table .ant-table-tbody>tr:hover>td {
-    background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%) !important;
-    transform: scale(1.002);
-}
-.ant-input,
-.ant-select-selector,
-.ant-input-number {
-    border-radius: 12px !important;
-    border: 1.5px solid #e2e8f0 !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
-    transition: all 0.2s ease !important;
-    height: 44px !important;
-    display: flex;
-    align-items: center;
-}
-
-.ant-input:focus,
-.ant-input:hover,
-.ant-select-selector:hover,
-.ant-select-selector:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1) !important;
-}
-
-/* Thiết kế Menu Sider Light Siêu Cấp */
+/* ─── Premium Sider ─── */
 .premium-sider-menu .ant-menu-item {
-    border-radius: 12px !important;
-    margin: 4px 12px !important;
-    width: calc(100% - 24px) !important;
-    height: 48px !important;
-    line-height: 48px !important;
-    transition: all 0.2s ease !important;
-    color: #64748b !important;
+  border-radius: 12px !important;
+  margin: 4px 12px !important;
+  width: calc(100% - 24px) !important;
+  height: 48px !important;
+  line-height: 48px !important;
+  transition: all 0.2s ease !important;
+  color: #64748b !important;
 }
-
 .premium-sider-menu .ant-menu-item-selected {
-    background: white !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
-    color: #2563eb !important;
-    font-weight: 700 !important;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+  background: white !important;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
+  color: #2563eb !important;
+  font-weight: 700 !important;
+  border: 1px solid rgba(0,0,0,0.05);
 }
-
 .premium-sider-menu .ant-menu-item:hover:not(.ant-menu-item-selected) {
-    background: rgba(255, 255, 255, 0.5) !important;
-    color: #334155 !important;
+  background: rgba(255,255,255,0.5) !important;
+  color: #334155 !important;
 }
 
-/* Scrollbar tinh tế */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+/* ─── Custom components ─── */
+.field-card {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.field-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--card-shadow-hover);
 }
 
-::-webkit-scrollbar-track {
-    background: transparent;
+.slot-btn {
+  transition: all 0.15s ease;
+}
+.slot-btn:not(:disabled):hover {
+  transform: scale(1.05);
 }
 
-::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
-    border-radius: 20px;
+.btn-primary {
+  background: linear-gradient(135deg, #f5c542, #d69e12);
+  color: #09090b;
+  transition: all 0.2s ease;
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #ffe27a, #eab308);
+  box-shadow: 0 4px 15px rgba(245,197,66,0.35);
+  transform: translateY(-1px);
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background-color: #94a3b8;
+.btn-accent {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  transition: all 0.2s ease;
 }
+.btn-accent:hover {
+  background: linear-gradient(135deg, #15803d, #166534);
+  box-shadow: 0 4px 15px rgba(22,163,74,0.4);
+  transform: translateY(-1px);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }

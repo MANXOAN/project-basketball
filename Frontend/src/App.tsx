@@ -38,6 +38,7 @@ function App() {
       <Routes>
         <Route path="/*" element={<ClientLayout />}>
           <Route index element={<Home />} />
+          <Route path="field/:id" element={<Detail />} />
           <Route path="detail/:id" element={<Detail />} />
           <Route path="detail" element={<Detail />} />
           <Route path="booking" element={<Booking />} />

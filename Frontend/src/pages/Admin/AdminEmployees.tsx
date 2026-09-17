@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Table, Button, Modal, Form, Select, message, Spin, Tag, Input } from "antd";
-import { Users, Shield, ShieldCheck, Mail, Lock, Plus } from "lucide-react";
+import { Users, Shield, ShieldCheck, Mail, Lock, Plus, UserRound, Activity } from "lucide-react";
 import { api } from "../../lib/api";
 
 export default function AdminEmployees() {
@@ -108,24 +108,29 @@ export default function AdminEmployees() {
         <div className="animate-in fade-in duration-500 pb-10">
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 className="text-3xl font-black bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent tracking-tight flex items-center gap-2">
+                    <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><ShieldCheck size={14} /> Access control</div>
+                    <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
                         Phân Quyền Nhân Sự (RBAC)
                     </h1>
                     <p className="text-gray-500 mt-2 font-medium">Bảo mật hệ thống, cấp quyền truy cập theo từng chức vụ</p>
                 </div>
-                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 font-bold px-6 border-0 shadow-lg shadow-cyan-500/30 flex items-center h-12 rounded-2xl transition-all hover:scale-105 hover:-translate-y-0.5">
+                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black font-bold px-6 !border-0 shadow-lg shadow-yellow-500/20 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
                     <Plus className="mr-2" size={20} /> Thêm nhân sự
                 </Button>
             </div>
 
-            <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                {[{ label: "Nhân sự đang quản lý", value: users.length, icon: Users }, { label: "Quản lý cấp cao", value: users.filter((u) => u.role === "admin").length, icon: ShieldCheck }, { label: "Đang hoạt động", value: users.length, icon: Activity }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+            </div>
+            <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
                 <Table
                     className="modern-table mt-2"
                     dataSource={users}
                     columns={columns}
                     rowKey="id"
                     pagination={false}
-                    components={{ header: { cell: (props: any) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold uppercase text-xs tracking-wider border-b border-gray-100 py-4" /> } }}
+                    locale={{ emptyText: <div className="py-12 text-center text-gray-500"><UserRound className="mx-auto mb-3 text-yellow-500" /><p>Chưa có nhân sự trong hệ thống</p></div> }}
+                    components={{ header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold uppercase text-xs tracking-wider !border-b-white/10 py-4" /> } }}
                 />
             </div>
 

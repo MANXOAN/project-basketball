@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams, useLocation } from "react-router-do
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  CalendarDays, Clock, MapPin, User, CheckCircle2, Loader2, Wallet, QrCode, Tag, Banknote
+  CalendarDays, Clock, MapPin, User, CheckCircle2, Loader2, Wallet, QrCode, Tag, Banknote, ChevronRight, ShieldCheck, Sparkles, ArrowLeft
 } from "lucide-react";
 import {
   api, Court, Field, formatCurrency, TIME_SLOTS, getBookedSlots, isSlotConflict,
@@ -16,7 +16,7 @@ const DURATIONS = [
   { label: "2 giờ", value: 2 },
 ];
 
-const CLOSING_TIME = 21; // Sân đóng cửa lúc 21:00
+const CLOSING_TIME = 22; // Sân đóng cửa lúc 22:00
 
 export default function Booking() {
   const navigate = useNavigate();
@@ -61,7 +61,7 @@ export default function Booking() {
     return hours + minutes / 60 + dur;
   };
 
-  // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa (21:00) hay không
+  // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa (22:00) hay không
   const isDurationValid = (dur: number): boolean => {
     if (!time) return true;
     return getEndTime(time, dur) <= CLOSING_TIME;
@@ -99,134 +99,115 @@ export default function Booking() {
   const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discountAmount: number; voucherId: number } | null>(null);
   const [voucherLoading, setVoucherLoading] = useState(false);
 
-  const selectedCourt = courts.find((c) => c.id === courtId) || null;
-  const subTotal = useMemo(() => {
-    let cost = 0;
-    if (selectedCourt) {
-      cost = selectedCourt.price * duration * recurringDates.length;
-    }
-    return cost + (servicesTotal * recurringDates.length);
-  }, [selectedCourt, duration, recurringDates.length, servicesTotal]);
-
-  const total = useMemo(
-    () => Math.max(0, subTotal - (appliedVoucher?.discountAmount || 0)),
-    [subTotal, appliedVoucher]
-  );
-
-  // Nếu thanh toán tiền mặt thì tiền cọc bằng 0
-  const deposit = paymentMethod === "cash" ? 0 : total * 0.3; 
-
   useEffect(() => {
-    if (!fieldIdParam) {
-      setLoadingData(false);
-      return;
-    }
+    if (!fieldIdParam) return;
     (async () => {
       try {
         const [fRes, cRes] = await Promise.all([
           api.get<Field>(`/fields/${fieldIdParam}`),
-          api.get<Court[]>(`/courts`, { params: { fieldId: fieldIdParam, status: "active" } }),
+          api.get<Court[]>(`/courts`, { params: { fieldId: fieldIdParam } }),
         ]);
         setField(fRes.data);
-        const active = cRes.data.filter((c) => c.status === "active");
-        setCourts(active);
-        if (!courtId && active.length) setCourtId(active[0].id);
+        setCourts(cRes.data);
+        if (!courtIdParam && cRes.data[0]) {
+          setCourtId(cRes.data[0].id);
+        }
       } catch {
-        toast.error("Không tải được thông tin sân");
+        toast.error("Không tìm thấy cơ sở");
       } finally {
         setLoadingData(false);
       }
     })();
-  }, [fieldIdParam]);
+  }, [fieldIdParam, courtIdParam]);
+
+  const selectedCourt = courts.find((c) => c.id === courtId);
 
   useEffect(() => {
-    if (!courtId || !date) {
-      setBookedSlots([]);
-      return;
-    }
-    getBookedSlots(courtId, date).then(setBookedSlots).catch(() => setBookedSlots([]));
-  }, [courtId, date]);
-
-  useEffect(() => {
-    if (location.state?.successId) {
-      const code = `BK${String(location.state.successId).padStart(6, "0")}`;
-
-      const payload = location.state.payload;
-      let qrData = `CHECKIN-${code}`;
-      if (payload) {
-        qrData += ` | Sân: ${payload.fieldName} - ${payload.court} | Tên: ${payload.customer.fullName} | ĐT: ${payload.customer.phone}`;
+    if (!selectedCourt || !date) return;
+    (async () => {
+      try {
+        const slots = await getBookedSlots(selectedCourt.id, date);
+        setBookedSlots(slots);
+      } catch {
+        setBookedSlots([]);
       }
-
-      const checkinQrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250`;
-      setSuccess({
-        code,
-        paymentMethod: location.state.paymentMethod,
-        checkinQrUrl
-      });
-      navigate(location.pathname + location.search, { replace: true, state: {} });
-    }
-  }, [location.state, navigate, location.pathname, location.search]);
+    })();
+  }, [selectedCourt?.id, date]);
 
   const slotDisabled = (slot: string) => {
-    const isPast = date === new Date().toISOString().slice(0, 10) && new Date(`${date}T${slot}:00`) < new Date();
-    return isPast || bookedSlots.some((b) => isSlotConflict(b.time, b.duration, slot, duration));
+    return bookedSlots.some((b) =>
+      isSlotConflict(b.time, b.duration, slot, duration)
+    );
   };
 
-  const handleCustomerChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setCustomer((prev) => ({ ...prev, [name]: value }));
-  };
+  const courtPrice = selectedCourt?.price ?? field?.pricePerHour ?? 0;
+  const subTotal = courtPrice * duration * recurringDates.length + servicesTotal;
+  const discount = appliedVoucher?.discountAmount || 0;
+  const total = Math.max(0, subTotal - discount);
+  const deposit = Math.round(total * 0.3);
 
   const applyVoucher = async () => {
-    if (!voucherCode.trim()) return;
+    if (!voucherCode.trim()) {
+      toast.error("Vui lòng nhập mã khuyến mãi");
+      return;
+    }
     setVoucherLoading(true);
     try {
-      const res = await api.get(`/vouchers`, { params: { code: voucherCode.trim().toUpperCase(), status: 'active' } });
-      const vouchers = res.data;
-      if (!vouchers || vouchers.length === 0) {
-        toast.error("Mã giảm giá không hợp lệ hoặc không tồn tại!");
-        setAppliedVoucher(null);
+      const res = await api.get(`/vouchers?code=${voucherCode.trim()}`);
+      if (!res.data || res.data.length === 0) {
+        toast.error("Mã khuyến mãi không tồn tại!");
+        setVoucherLoading(false);
         return;
       }
 
-      const v = vouchers[0];
-      if (v.used >= v.limit) {
-        toast.error("Mã giảm giá đã hết lượt sử dụng!");
-        setAppliedVoucher(null);
+      const voucher = res.data[0];
+      const now = new Date().toISOString().slice(0, 10);
+
+      if (voucher.validUntil && voucher.validUntil < now) {
+        toast.error("Mã khuyến mãi đã hết hạn sử dụng!");
+        setVoucherLoading(false);
+        return;
+      }
+
+      if (voucher.usageLimit !== undefined && voucher.usedCount >= voucher.usageLimit) {
+        toast.error("Mã khuyến mãi đã hết lượt sử dụng!");
+        setVoucherLoading(false);
         return;
       }
 
       let discountAmount = 0;
-      if (v.type === 'percent') {
-        discountAmount = (subTotal * v.discount) / 100;
-      } else {
-        discountAmount = v.discount;
+      if (voucher.discountPercent) {
+        discountAmount = Math.round((subTotal * voucher.discountPercent) / 100);
+      } else if (voucher.discountAmount) {
+        discountAmount = voucher.discountAmount;
       }
 
+      discountAmount = Math.min(discountAmount, subTotal);
+
       setAppliedVoucher({
-        code: v.code,
+        code: voucher.code,
         discountAmount,
-        voucherId: v.id
+        voucherId: voucher.id,
       });
-      toast.success("Áp dụng mã hợp lệ!");
-    } catch (e) {
-      toast.error("Lỗi khi kiểm tra mã");
+
+      toast.success(`Đã áp dụng mã ${voucher.code}: Giảm ${formatCurrency(discountAmount)}`);
+    } catch {
+      toast.error("Lỗi khi kiểm tra mã khuyến mãi");
     } finally {
       setVoucherLoading(false);
     }
   };
 
+  const handleCustomerChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setCustomer((prev) => ({ ...prev, [name]: value }));
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!isLoggedIn()) {
-      toast.error("Vui lòng đăng nhập để đặt sân");
-      navigate("/login", { state: { from: `/booking?fieldId=${fieldIdParam}` } });
-      return;
-    }
-    if (!field || !selectedCourt) {
-      toast.error("Vui lòng chọn sân");
+
+    if (!selectedCourt || !field) {
+      toast.error("Vui lòng chọn sân trước khi tiếp tục");
       return;
     }
     if (!date) {
@@ -234,19 +215,18 @@ export default function Booking() {
       return;
     }
     if (!time) {
-      toast.error("Vui lòng chọn giờ");
+      toast.error("Vui lòng chọn giờ đặt sân");
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
-    if (date < today) {
-      toast.error("Không thể đặt ngày trong quá khứ");
+    if (!isDurationValid(duration)) {
+      toast.error("Thời lượng đặt sân vượt quá giờ đóng cửa (22:00)");
       return;
     }
-    if (!customer.fullName.trim() || !customer.phone.trim()) {
-      toast.error("Vui lòng nhập họ tên và số điện thoại");
+    if (!customer.fullName.trim()) {
+      toast.error("Vui lòng nhập họ và tên");
       return;
     }
-    if (!/^(0|\+84)[0-9]{9,10}$/.test(customer.phone.trim())) {
+    if (!customer.phone.trim() || customer.phone.trim().length < 9) {
       toast.error("Số điện thoại không hợp lệ");
       return;
     }
@@ -256,8 +236,8 @@ export default function Booking() {
     }
 
     const user = getUser();
-
     setLoading(true);
+
     try {
       for (const d of recurringDates) {
         const slots = await getBookedSlots(selectedCourt.id, d);
@@ -268,15 +248,14 @@ export default function Booking() {
           return;
         }
       }
-    } catch (err) {
+    } catch {
       toast.error("Lỗi khi kiểm tra lịch trống.");
       setLoading(false);
       return;
     }
 
-    // Gom danh sách dịch vụ mua/thuê kèm
     const services = [];
-    if (balls > 0) services.push({ name: "Bóng", quantity: balls, price: 20000 });
+    if (balls > 0) services.push({ name: "Bóng rổ", quantity: balls, price: 20000 });
     if (bibs > 0) services.push({ name: "Áo pitch", quantity: bibs, price: 10000 });
     if (water > 0) services.push({ name: "Nước lọc", quantity: water, price: 10000 });
     if (mineralWater > 0) services.push({ name: "Nước muối khoáng", quantity: mineralWater, price: 15000 });
@@ -313,7 +292,6 @@ export default function Booking() {
       createdAt: new Date().toISOString(),
     };
 
-    // Nếu chọn thanh toán tiền mặt tại sân, lưu đơn luôn không qua Paygate
     if (paymentMethod === "cash") {
       try {
         const res = await api.post("/bookings", payload);
@@ -327,7 +305,7 @@ export default function Booking() {
           checkinQrUrl,
         });
         toast.success("Đặt sân thành công!");
-      } catch (err) {
+      } catch {
         toast.error("Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
       } finally {
         setLoading(false);
@@ -341,17 +319,20 @@ export default function Booking() {
 
   if (loadingData) {
     return (
-      <div className="flex justify-center py-32">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="flex flex-col items-center justify-center py-36 gap-3 bg-black min-h-screen">
+        <Loader2 className="w-10 h-10 animate-spin text-yellow-500" />
+        <p className="text-gray-400 text-sm font-medium">Đang chuẩn bị trang đặt sân...</p>
       </div>
     );
   }
 
   if (!fieldIdParam || !field) {
     return (
-      <div className="max-w-lg mx-auto py-16 text-center">
-        <p className="text-gray-500 mb-4">Chưa chọn cơ sở để đặt sân</p>
-        <Link to="/fields" className="text-blue-600 font-bold">
+      <div className="max-w-lg mx-auto py-24 px-4 text-center">
+        <div className="text-6xl mb-4 opacity-80">🏀</div>
+        <h2 className="text-2xl font-bold text-white mb-2">Chưa chọn cơ sở thể thao</h2>
+        <p className="text-gray-400 mb-6">Vui lòng chọn sân trước khi thực hiện đặt lịch.</p>
+        <Link to="/fields" className="btn-primary inline-flex items-center gap-2 px-6 py-3 rounded-xl">
           Tìm sân ngay →
         </Link>
       </div>
@@ -360,41 +341,43 @@ export default function Booking() {
 
   if (success) {
     return (
-      <div className="max-w-lg mx-auto py-16 px-4">
-        <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-10 text-center">
-          <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-extrabold text-gray-900 mb-2">
+      <div className="max-w-lg mx-auto py-20 px-4">
+        <div className="bg-zinc-900 rounded-3xl border border-yellow-500/30 p-8 md:p-10 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="w-16 h-16 rounded-full bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center mx-auto mb-5 text-yellow-400">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+
+          <h2 className="text-2xl font-extrabold text-white mb-2">
             {location.state?.isAutoTransfer ? "Chuyển khoản thành công!" : "Đặt sân thành công!"}
           </h2>
-          <p className="text-gray-500 mb-4">
-            Mã đơn: <span className="font-bold text-green-700">{success.code}</span>
+          <p className="text-gray-400 text-sm mb-6">
+            Mã đơn của bạn: <span className="font-extrabold text-yellow-400 text-base">{success.code}</span>
           </p>
-          {success.paymentMethod === "full" ? (
-            <p className="text-sm text-green-600 mb-6">Đã thanh toán 100% · Cần admin xác nhận</p>
-          ) : success.paymentMethod === "deposit" ? (
-            <p className="text-sm text-amber-600 mb-6">Đã đặt cọc 30% · Cần admin xác nhận</p>
-          ) : (
-            <p className="text-sm text-blue-600 mb-6">Thanh toán tiền mặt tại sân · Cần admin xác nhận</p>
-          )}
-          {success.checkinQrUrl ? (
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6 inline-block w-full text-center">
-              <img src={success.checkinQrUrl} alt="Check-in QR" className="w-40 h-40 mx-auto object-contain" />
-              <p className="text-xs text-gray-500 mt-2">Mã QR Check-in / Xác minh tại sân</p>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6 inline-block w-full text-center">
-              <QrCode className="w-40 h-40 mx-auto text-gray-800" />
-              <p className="text-xs text-gray-500 mt-2">Mã QR Check-in / Xác minh tại sân</p>
-            </div>
-          )}
+
+          <div className="bg-black/80 border border-white/10 rounded-2xl p-5 mb-8">
+            {success.checkinQrUrl ? (
+              <img src={success.checkinQrUrl} alt="Check-in QR" className="w-44 h-44 mx-auto object-contain rounded-xl bg-white p-2" />
+            ) : (
+              <QrCode className="w-40 h-40 mx-auto text-yellow-500" />
+            )}
+            <p className="text-xs text-gray-400 mt-3 font-medium">
+              Vui lòng xuất trình mã QR này khi check-in tại quầy lễ tân sân bóng.
+            </p>
+          </div>
+
           <div className="space-y-3">
             <Link
               to="/my-bookings"
-              className="block w-full bg-blue-600 text-white py-3 rounded-xl font-bold"
+              className="btn-primary block w-full py-3.5 rounded-xl font-bold"
             >
-              Xem đơn của tôi
+              Xem đơn đặt sân của tôi
             </Link>
-            <Link to="/" className="block w-full border border-gray-200 py-3 rounded-xl font-bold text-gray-600">
+            <Link
+              to="/"
+              className="btn-outline block w-full py-3 rounded-xl text-sm"
+            >
               Về trang chủ
             </Link>
           </div>
@@ -404,388 +387,436 @@ export default function Booking() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="text-sm text-gray-400 mb-6">
-        <Link to="/" className="text-blue-600">Trang chủ</Link> /{" "}
-        <Link to={`/detail/${field.id}`} className="text-blue-600">
-          {field.name}
-        </Link>{" "}
-        / <span className="text-gray-600">Đặt sân</span>
-      </div>
+    <div className="min-h-screen bg-black text-gray-200 py-10 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Breadcrumb */}
+        <div className="text-xs text-gray-500 mb-8 flex items-center gap-2 tracking-wide uppercase font-bold">
+          <Link to="/" className="hover:text-yellow-400 transition-colors">Trang chủ</Link>
+          <ChevronRight className="w-3 h-3" />
+          <Link to={`/detail/${field.id}`} className="hover:text-yellow-400 transition-colors">{field.name}</Link>
+          <ChevronRight className="w-3 h-3" />
+          <span className="text-yellow-500">Đặt lịch thi đấu</span>
+        </div>
 
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
-              <MapPin className="w-4 h-4 mr-2 text-blue-600" /> Chọn sân
-            </h3>
-            <p className="text-sm text-gray-500 mb-4">{field.name} · {field.address}</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {courts.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCourtId(c.id)}
-                  className={`border rounded-xl px-4 py-3 text-sm font-bold transition ${courtId === c.id
-                    ? "bg-blue-600 border-blue-600 text-white"
-                    : "border-gray-200 text-gray-700 hover:border-blue-400"
-                    }`}
-                >
-                  {c.name}
-                  <div className={`text-xs mt-1 font-medium ${courtId === c.id ? "text-blue-100" : "text-gray-400"}`}>
-                    {formatCurrency(c.price)}/h
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* Main Booking Form */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* 1. Chọn sân */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="text-lg font-extrabold text-white mb-2 flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">1</span>
+                Chọn sân đấu
+              </h3>
+              <p className="text-sm text-gray-400 mb-6 flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-yellow-500 shrink-0" />
+                {field.name} · {field.address}
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {courts.map((c) => {
+                  const active = courtId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCourtId(c.id)}
+                      className={`rounded-2xl p-4 text-left transition-all relative overflow-hidden border ${
+                        active
+                          ? "bg-yellow-500/10 border-yellow-500 text-yellow-400 shadow-lg shadow-yellow-500/10 ring-1 ring-yellow-500/50"
+                          : "bg-black border-white/10 text-gray-300 hover:border-yellow-500/40"
+                      }`}
+                    >
+                      <div className="font-bold text-sm text-white mb-1 flex items-center justify-between">
+                        {c.name}
+                        {active && <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />}
+                      </div>
+                      <div className={`text-xs font-semibold ${active ? "text-yellow-400" : "text-gray-400"}`}>
+                        {formatCurrency(c.price)} / giờ
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Ngày & Giờ */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">2</span>
+                Thời gian đặt sân
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                    Từ ngày
+                  </label>
+                  <input
+                    type="date"
+                    value={date}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => {
+                      setDate(e.target.value);
+                      if (endDate && e.target.value > endDate) setEndDate("");
+                      setTime("");
+                    }}
+                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    style={{ colorScheme: "dark" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                    Đến ngày (tùy chọn đặt cố định tuần)
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={date || new Date().toISOString().slice(0, 10)}
+                    max={new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().slice(0, 10)}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    style={{ colorScheme: "dark" }}
+                  />
+                </div>
+              </div>
+
+              {/* Khung giờ */}
+              <div className="mb-6">
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                  Chọn khung giờ bắt đầu
+                </label>
+                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                  {TIME_SLOTS.map((t) => {
+                    const disabled = !date || slotDisabled(t);
+                    const selected = time === t;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setTime(t)}
+                        className={`rounded-xl py-2.5 text-xs font-bold transition-all border ${
+                          selected
+                            ? "bg-yellow-500 text-black border-yellow-500 shadow-md shadow-yellow-500/30 scale-105"
+                            : disabled
+                            ? "bg-zinc-900 text-zinc-600 border-white/5 cursor-not-allowed"
+                            : "bg-black text-gray-300 border-white/10 hover:border-yellow-500 hover:text-yellow-400"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Thời lượng */}
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                  Thời lượng thuê
+                </label>
+                <div className="flex gap-3">
+                  {DURATIONS.map((d) => {
+                    const disabled = !time || !isDurationValid(d.value);
+                    const active = duration === d.value && !disabled;
+                    return (
+                      <button
+                        key={d.value}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setDuration(d.value)}
+                        className={`px-6 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                          active
+                            ? "bg-yellow-500 text-black border-yellow-500"
+                            : disabled
+                            ? "bg-zinc-900 text-zinc-600 border-white/5 cursor-not-allowed opacity-50"
+                            : "bg-black text-gray-300 border-white/10 hover:border-yellow-500 hover:text-yellow-400"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {time && getEndTime(time, 1) >= CLOSING_TIME && (
+                  <p className="text-xs text-yellow-500/80 mt-2 font-medium">
+                    * Sân đóng cửa lúc {CLOSING_TIME}:00 nên chỉ áp dụng thời lượng phù hợp.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Dịch vụ tiện ích */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">3</span>
+                Dịch vụ & Dụng cụ thêm
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { name: "Thuê bóng thi đấu", price: "20.000đ / quả", val: balls, set: setBalls },
+                  { name: "Thuê áo pitch chia đội", price: "10.000đ / áo", val: bibs, set: setBibs },
+                  { name: "Nước khoáng lạnh", price: "10.000đ / chai", val: water, set: setWater },
+                  { name: "Nước muối điện giải", price: "15.000đ / chai", val: mineralWater, set: setMineralWater },
+                ].map((s, idx) => (
+                  <div key={idx} className="bg-black border border-white/5 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-white text-sm">{s.name}</div>
+                      <div className="text-xs text-yellow-500 font-semibold mt-0.5">{s.price}</div>
+                    </div>
+                    <div className="flex items-center space-x-3 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1">
+                      <button
+                        type="button"
+                        onClick={() => s.set(Math.max(0, s.val - 1))}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 font-bold transition-all"
+                      >
+                        -
+                      </button>
+                      <span className="font-extrabold text-white text-sm min-w-[18px] text-center">{s.val}</span>
+                      <button
+                        type="button"
+                        onClick={() => s.set(s.val + 1)}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-yellow-400 hover:bg-yellow-500/20 font-bold transition-all"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
-              <CalendarDays className="w-4 h-4 mr-2 text-blue-600" /> Ngày & giờ
-            </h3>
-            <div className="mb-4 grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">Từ ngày</label>
-                <input
-                  type="date"
-                  value={date}
-                  min={new Date().toISOString().slice(0, 10)}
-                  onChange={(e) => {
-                    setDate(e.target.value);
-                    if (endDate && e.target.value > endDate) setEndDate("");
-                    setTime("");
-                  }}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">Đến ngày (tối đa 3 tháng)</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={date || new Date().toISOString().slice(0, 10)}
-                  max={new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().slice(0, 10)}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-600 mb-2">Khung giờ</label>
-              <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                {TIME_SLOTS.map((t) => {
-                  const disabled = !date || slotDisabled(t);
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => setTime(t)}
-                      className={`rounded-lg py-2 text-xs font-bold border transition ${time === t
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : disabled
-                          ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
-                          : "border-gray-200 text-gray-700 hover:border-blue-400"
-                        }`}
-                    >
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-600 mb-2">Thời lượng</label>
-              <div className="flex gap-2">
-                {DURATIONS.map((d) => {
-                  const disabled = !time || !isDurationValid(d.value);
-                  return (
-                    <button
-                      key={d.value}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => setDuration(d.value)}
-                      className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${duration === d.value && !disabled
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : disabled
-                          ? "bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed opacity-60"
-                          : "border-gray-200 text-gray-600 hover:border-blue-400"
-                        }`}
-                    >
-                      {d.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {time && getEndTime(time, 1) >= CLOSING_TIME && (
-                <p className="text-xs text-amber-600 mt-2 font-medium">
-                  * Sân đóng cửa lúc {CLOSING_TIME}:00 nên khung giờ này chỉ có thể đặt tối đa 1 giờ.
-                </p>
-              )}
-            </div>
-          </div>
+            {/* 4. Thông tin người đặt */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">4</span>
+                Thông tin liên hệ
+              </h3>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
-              <User className="w-4 h-4 mr-2 text-blue-600" /> Thông tin liên hệ
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">Họ và tên</label>
-                <input
-                  name="fullName"
-                  value={customer.fullName}
-                  onChange={handleCustomerChange}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="Nhập họ và tên"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Họ và tên *</label>
+                  <input
+                    name="fullName"
+                    value={customer.fullName}
+                    onChange={handleCustomerChange}
+                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-gray-600"
+                    placeholder="Nguyễn Văn A"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Số điện thoại *</label>
+                  <input
+                    name="phone"
+                    value={customer.phone}
+                    onChange={handleCustomerChange}
+                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-gray-600"
+                    placeholder="0987xxxxxx"
+                  />
+                </div>
               </div>
+
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">Số điện thoại</label>
-                <input
-                  name="phone"
-                  value={customer.phone}
-                  onChange={handleCustomerChange}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="09xxxxxxxx"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">Ghi chú</label>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Ghi chú yêu cầu thêm</label>
                 <textarea
                   name="note"
-                  rows={3}
+                  rows={2}
                   value={customer.note}
                   onChange={handleCustomerChange}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 resize-none"
-                  placeholder="Yêu cầu thêm..."
+                  className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all resize-none placeholder:text-gray-600"
+                  placeholder="Yêu cầu chuẩn bị sân, bóng mới..."
                 />
               </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
-              <Tag className="w-4 h-4 mr-2 text-blue-600" /> Dịch vụ thêm
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
-                <div>
-                  <div className="font-bold text-gray-800 text-sm">Thuê bóng</div>
-                  <div className="text-xs text-blue-600 font-semibold">20.000đ / quả / buổi</div>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button type="button" onClick={() => setBalls(Math.max(0, balls - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
-                  <span className="font-bold min-w-[20px] text-center">{balls}</span>
-                  <button type="button" onClick={() => setBalls(balls + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
-                </div>
-              </div>
+            {/* 5. Phương thức thanh toán */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">5</span>
+                Phương thức thanh toán
+              </h3>
 
-              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
-                <div>
-                  <div className="font-bold text-gray-800 text-sm">Thuê áo pit (bib)</div>
-                  <div className="text-xs text-blue-600 font-semibold">10.000đ / áo / buổi</div>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button type="button" onClick={() => setBibs(Math.max(0, bibs - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
-                  <span className="font-bold min-w-[20px] text-center">{bibs}</span>
-                  <button type="button" onClick={() => setBibs(bibs + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
-                <div>
-                  <div className="font-bold text-gray-800 text-sm">Nước lọc</div>
-                  <div className="text-xs text-blue-600 font-semibold">10.000đ / chai / buổi</div>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button type="button" onClick={() => setWater(Math.max(0, water - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
-                  <span className="font-bold min-w-[20px] text-center">{water}</span>
-                  <button type="button" onClick={() => setWater(water + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
-                <div>
-                  <div className="font-bold text-gray-800 text-sm">Nước muối khoáng</div>
-                  <div className="text-xs text-blue-600 font-semibold">15.000đ / chai / buổi</div>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button type="button" onClick={() => setMineralWater(Math.max(0, mineralWater - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
-                  <span className="font-bold min-w-[20px] text-center">{mineralWater}</span>
-                  <button type="button" onClick={() => setMineralWater(mineralWater + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
-              <Wallet className="w-4 h-4 mr-2 text-blue-600" /> Phương thức thanh toán
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <label
-                className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "deposit" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
-                  }`}
-              >
-                <div className="flex items-center">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    checked={paymentMethod === "deposit"}
-                    onChange={() => setPaymentMethod("deposit")}
-                    className="w-4 h-4"
-                  />
-                  <div className="ml-3">
-                    <div className="font-bold text-gray-800 text-sm">Đặt cọc (30%)</div>
-                    <div className="text-xs text-gray-500">Chuyển khoản cọc</div>
-                  </div>
-                </div>
-              </label>
-
-              <label
-                className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "full" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
-                  }`}
-              >
-                <div className="flex items-center">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    checked={paymentMethod === "full"}
-                    onChange={() => setPaymentMethod("full")}
-                    className="w-4 h-4"
-                  />
-                  <div className="ml-3">
-                    <div className="font-bold text-gray-800 text-sm">Thanh toán 100%</div>
-                    <div className="text-xs text-gray-500">Chuyển khoản full</div>
-                  </div>
-                </div>
-              </label>
-
-              <label
-                className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
-                  }`}
-              >
-                <div className="flex items-center">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    checked={paymentMethod === "cash"}
-                    onChange={() => setPaymentMethod("cash")}
-                    className="w-4 h-4"
-                  />
-                  <div className="ml-3">
-                    <div className="font-bold text-gray-800 text-sm flex items-center gap-1">
-                      <Banknote className="w-3.5 h-3.5 text-green-600" /> Tiền mặt
-                    </div>
-                    <div className="text-xs text-gray-500">Thanh toán tại sân</div>
-                  </div>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-1">
-          <div className="sticky top-24">
-            <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
-              <h3 className="font-extrabold text-gray-900 mb-6">Tóm tắt đơn</h3>
-              <div className="space-y-4 mb-8 text-sm font-semibold">
-                <div className="flex justify-between border-b border-gray-100 pb-3">
-                  <span className="text-gray-500">Cơ sở</span>
-                  <span className="text-gray-900 text-right max-w-[60%]">{field.name}</span>
-                </div>
-                <div className="flex justify-between border-b border-gray-100 pb-3">
-                  <span className="text-gray-500">Sân</span>
-                  <span className="text-gray-900">{selectedCourt?.name || "—"}</span>
-                </div>
-                <div className="flex justify-between border-b border-gray-100 pb-3">
-                  <span className="text-gray-500 flex items-center">
-                    <CalendarDays className="w-3.5 h-3.5 mr-1" /> Ngày
-                  </span>
-                  <span>{date || "Chưa chọn"} {recurringDates.length > 1 && <span className="text-xs text-blue-600 ml-1">({recurringDates.length} buổi)</span>}</span>
-                </div>
-                <div className="flex justify-between border-b border-gray-100 pb-3">
-                  <span className="text-gray-500 flex items-center">
-                    <Clock className="w-3.5 h-3.5 mr-1" /> Giờ
-                  </span>
-                  <span>{time || "Chưa chọn"}</span>
-                </div>
-                <div className="flex justify-between border-b border-gray-100 pb-3">
-                  <span className="text-gray-500">Thời lượng</span>
-                  <span>{duration} giờ</span>
-                </div>
-
-                <div className="flex justify-between pb-2 pt-2">
-                  <div className="flex w-full space-x-2">
-                    <input
-                      value={voucherCode}
-                      onChange={e => setVoucherCode(e.target.value.toUpperCase())}
-                      placeholder="Mã giảm giá..."
-                      className="border border-gray-200 rounded-xl px-4 py-2 w-full text-sm font-bold text-gray-700 outline-none focus:border-blue-500 uppercase"
-                    />
-                    <button
-                      type="button"
-                      onClick={applyVoucher}
-                      disabled={voucherLoading || !subTotal}
-                      className="bg-gray-800 hover:bg-gray-900 transition-colors text-white px-5 rounded-xl text-sm font-bold whitespace-nowrap disabled:opacity-50 flex items-center justify-center"
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  {
+                    id: "deposit",
+                    title: "Đặt cọc (30%)",
+                    desc: "Chuyển khoản cọc giữ sân",
+                    badge: "Phổ biến",
+                  },
+                  {
+                    id: "full",
+                    title: "Thanh toán 100%",
+                    desc: "Thẻ ATM, Visa, QR VNPay",
+                    badge: "Nhanh nhất",
+                  },
+                  {
+                    id: "cash",
+                    title: "Tiền mặt tại sân",
+                    desc: "Thanh toán trực tiếp khi đến",
+                    badge: "Linh hoạt",
+                  },
+                ].map((item) => {
+                  const active = paymentMethod === item.id;
+                  return (
+                    <label
+                      key={item.id}
+                      className={`block rounded-2xl p-5 cursor-pointer border transition-all relative overflow-hidden ${
+                        active
+                          ? "bg-yellow-500/10 border-yellow-500 ring-1 ring-yellow-500/40"
+                          : "bg-black border-white/10 hover:border-white/20"
+                      }`}
                     >
-                      {voucherLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Áp dụng"}
-                    </button>
+                      <div className="flex items-start justify-between mb-2">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          checked={active}
+                          onChange={() => setPaymentMethod(item.id as any)}
+                          className="accent-yellow-500 w-4 h-4 mt-1"
+                        />
+                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-400">
+                          {item.badge}
+                        </span>
+                      </div>
+                      <div className="font-bold text-white text-base mt-2">{item.title}</div>
+                      <div className="text-xs text-gray-400 mt-1">{item.desc}</div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Sticky Order Summary Sidebar */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-24">
+              <div className="bg-zinc-900 rounded-3xl border border-white/10 p-6 md:p-8 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-2xl pointer-events-none" />
+
+                <h3 className="text-xl font-extrabold text-white mb-6 flex items-center justify-between">
+                  Tóm tắt đơn đặt
+                  <Sparkles className="w-5 h-5 text-yellow-400" />
+                </h3>
+
+                <div className="space-y-4 mb-6 text-sm">
+                  <div className="flex justify-between border-b border-white/5 pb-3">
+                    <span className="text-gray-400">Cơ sở</span>
+                    <span className="text-white font-bold text-right max-w-[60%] line-clamp-1">{field.name}</span>
+                  </div>
+
+                  <div className="flex justify-between border-b border-white/5 pb-3">
+                    <span className="text-gray-400">Sân đấu</span>
+                    <span className="text-white font-bold">{selectedCourt?.name || "—"}</span>
+                  </div>
+
+                  <div className="flex justify-between border-b border-white/5 pb-3">
+                    <span className="text-gray-400 flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-yellow-500" /> Ngày
+                    </span>
+                    <span className="text-white font-bold">
+                      {date || "Chưa chọn"} {recurringDates.length > 1 && <span className="text-yellow-400 ml-1">({recurringDates.length} buổi)</span>}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between border-b border-white/5 pb-3">
+                    <span className="text-gray-400 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-yellow-500" /> Giờ đá
+                    </span>
+                    <span className="text-white font-bold">{time || "Chưa chọn"} ({duration}h)</span>
+                  </div>
+
+                  {servicesTotal > 0 && (
+                    <div className="flex justify-between border-b border-white/5 pb-3">
+                      <span className="text-gray-400">Dịch vụ thêm</span>
+                      <span className="text-white font-bold">{formatCurrency(servicesTotal)}</span>
+                    </div>
+                  )}
+
+                  {/* Voucher code */}
+                  <div className="pt-2 pb-3">
+                    <div className="flex gap-2">
+                      <input
+                        value={voucherCode}
+                        onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                        placeholder="MÃ GIẢM GIÁ..."
+                        className="bg-black border border-white/10 rounded-xl px-4 py-2.5 w-full text-xs font-bold text-white outline-none focus:border-yellow-500 uppercase placeholder:text-gray-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={applyVoucher}
+                        disabled={voucherLoading || !subTotal}
+                        className="btn-outline px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap disabled:opacity-40"
+                      >
+                        {voucherLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Áp dụng"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {appliedVoucher && (
+                    <div className="flex justify-between border-b border-white/5 pb-3 text-emerald-400">
+                      <span className="flex items-center gap-1"><Tag size={14} /> Giảm giá voucher</span>
+                      <span className="font-extrabold">-{formatCurrency(appliedVoucher.discountAmount)}</span>
+                    </div>
+                  )}
+
+                  {paymentMethod === "deposit" && (
+                    <div className="flex justify-between border-b border-white/5 pb-3 bg-yellow-500/5 px-3 py-2 rounded-xl">
+                      <span className="text-yellow-400 font-bold">Tiền cọc trước (30%)</span>
+                      <span className="text-yellow-400 font-extrabold text-base">{formatCurrency(deposit)}</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-gray-400 font-bold">Tổng thanh toán</span>
+                    <span className="text-2xl font-black text-white">
+                      {formatCurrency(total)}
+                    </span>
                   </div>
                 </div>
 
-                {appliedVoucher && (
-                  <div className="flex justify-between border-b border-gray-100 pb-3">
-                    <span className="text-gray-500 flex items-center gap-1"><Tag size={14} /> Giảm giá</span>
-                    <span className="text-emerald-500 font-black">-{formatCurrency(appliedVoucher.discountAmount)}</span>
-                  </div>
-                )}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full py-4 rounded-xl font-extrabold flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-base"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Đang xử lý...
+                    </>
+                  ) : paymentMethod === "cash" ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5" />
+                      Xác nhận đặt sân
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="w-5 h-5" />
+                      Tiếp tục thanh toán →
+                    </>
+                  )}
+                </button>
 
-                {paymentMethod !== "cash" && (
-                  <div className="flex justify-between border-b border-gray-100 pb-3 pt-2">
-                    <span className="text-gray-500">Tiền cọc (30%)</span>
-                    <span className="text-amber-500 font-bold">{formatCurrency(deposit)}</span>
+                <div className="mt-6 pt-6 border-t border-white/5 space-y-2.5 text-xs text-gray-500">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-yellow-500 shrink-0" />
+                    Bảo mật giao dịch 100% qua cổng kiểm duyệt
                   </div>
-                )}
-
-                <div className="flex justify-between pt-1">
-                  <span className="text-gray-500">Tổng tiền</span>
-                  <span className="text-blue-600 text-lg font-extrabold">
-                    {formatCurrency(total)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-yellow-500 shrink-0" />
+                    Hủy lịch miễn phí trước 2 tiếng thi đấu
+                  </div>
                 </div>
               </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold flex justify-center items-center transition disabled:opacity-60"
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                ) : (
-                  <CalendarDays className="w-5 h-5 mr-2" />
-                )}
-                {loading
-                  ? "Đang xử lý..."
-                  : paymentMethod === "cash"
-                  ? "Xác nhận đặt sân"
-                  : "Thanh toán online (Paygate)"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => navigate(-1)}
-                className="w-full mt-3 border border-gray-200 text-gray-600 py-3 rounded-xl font-bold text-sm"
-              >
-                Quay lại
-              </button>
             </div>
           </div>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

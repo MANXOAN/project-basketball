@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, MapPin, Navigation } from "lucide-react";
+import { Loader2, MapPin, Navigation, ChevronRight, Star, Sparkles } from "lucide-react";
 import { fetchFields, Field, formatCurrency } from "../lib/api";
 import toast from "react-hot-toast";
 
@@ -65,7 +65,7 @@ export default function MapPage() {
           (f) => typeof f.lat === "number" && typeof f.lng === "number"
         );
         if (withCoords.length === 0) {
-          toast.error("Chưa có tọa độ lat/lng trong db.json");
+          toast.error("Chưa có tọa độ lat/lng trong cơ sở dữ liệu");
           return;
         }
 
@@ -86,11 +86,13 @@ export default function MapPage() {
           const marker = L.marker([f.lat!, f.lng!]).addTo(map);
           bounds.push([f.lat!, f.lng!]);
           marker.bindPopup(`
-            <div style="min-width:180px">
-              <strong style="font-size:14px">${f.name}</strong><br/>
+            <div style="min-width:200px;font-family:sans-serif;padding:4px">
+              <strong style="font-size:14px;color:#111">${f.name}</strong><br/>
               <span style="color:#666;font-size:12px">${f.address}</span><br/>
-              <span style="font-size:12px;color:#2563eb">${f.sportLabel} · từ ${formatCurrency(f.priceFrom)}</span><br/>
-              <a href="/detail/${f.id}" style="color:#16a34a;font-weight:600;font-size:12px">Xem chi tiết →</a>
+              <div style="margin-top:6px;font-size:12px;font-weight:bold;color:#b45309">
+                ${f.sportLabel || f.type} · từ ${formatCurrency(f.priceFrom || f.pricePerHour)}
+              </div>
+              <a href="/field/${f.id}" style="display:inline-block;margin-top:6px;color:#000;background:#F5C542;padding:4px 10px;border-radius:8px;font-weight:bold;font-size:11px;text-decoration:none">Xem chi tiết & Đặt sân →</a>
             </div>
           `);
           marker.on("click", () => setSelectedId(f.id));
@@ -121,72 +123,106 @@ export default function MapPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-          <MapPin className="w-7 h-7 text-blue-600" />
-          Bản đồ sân thể thao
-        </h1>
-      </div>
+    <div className="min-h-screen bg-black text-gray-200 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8 mb-6 relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="relative z-10">
+            <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-yellow-400 mb-2">
+              <Sparkles className="w-4 h-4" /> Hệ thống định vị
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2.5">
+              <MapPin className="w-7 h-7 text-yellow-500" />
+              Bản Đồ Cụm Sân Thể Thao
+            </h1>
+            <p className="text-gray-400 text-sm mt-1">
+              Khám phá và định vị nhanh các cụm sân bóng rổ gần bạn nhất.
+            </p>
+          </div>
 
-      {loading ? (
-        <div className="flex justify-center py-24">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <Link
+            to="/fields"
+            className="btn-outline px-5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap self-start sm:self-center"
+          >
+            Xem danh sách dạng lưới →
+          </Link>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-            {fields.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => focusField(f)}
-                className={`w-full text-left bg-white rounded-xl border p-4 transition hover:shadow-md ${
-                  selectedId === f.id
-                    ? "border-blue-500 ring-2 ring-blue-100"
-                    : "border-gray-100"
-                }`}
-              >
-                <div className="font-bold text-gray-900">{f.name}</div>
-                <div className="text-xs text-gray-500 mt-1 flex items-start gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                  {f.address}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  {f.sportLabel} · {f.lat != null ? `${f.lat}, ${f.lng}` : "Chưa có tọa độ"}
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <Link
-                    to={`/detail/${f.id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-xs font-semibold text-emerald-600 hover:underline"
-                  >
-                    Chi tiết
-                  </Link>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${
-                      f.lat != null ? `${f.lat},${f.lng}` : encodeURIComponent(f.address)
+
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-28 gap-3">
+            <Loader2 className="w-10 h-10 animate-spin text-yellow-500" />
+            <p className="text-gray-400 text-sm font-medium">Đang tải vị trí các sân...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Sidebar list */}
+            <div className="lg:col-span-1 space-y-3 max-h-[72vh] overflow-y-auto pr-2 custom-scrollbar">
+              {fields.map((f) => {
+                const active = selectedId === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => focusField(f)}
+                    className={`w-full text-left rounded-2xl border p-4 transition-all ${
+                      active
+                        ? "bg-zinc-900 border-yellow-500 ring-2 ring-yellow-500/20 shadow-lg shadow-yellow-500/10"
+                        : "bg-zinc-900/60 border-white/5 hover:border-yellow-500/30 hover:bg-zinc-900"
                     }`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-0.5"
                   >
-                    <Navigation className="w-3 h-3" /> Chỉ đường
-                  </a>
-                </div>
-              </button>
-            ))}
-          </div>
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="font-extrabold text-white text-sm line-clamp-1">{f.name}</div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 shrink-0 ml-2">
+                        {f.sportLabel || f.type}
+                      </span>
+                    </div>
 
-          <div className="lg:col-span-2">
-            <div
-              ref={mapRef}
-              className="w-full h-[70vh] min-h-[400px] rounded-2xl border border-gray-200 overflow-hidden bg-gray-100 z-0"
-            />
+                    <div className="text-xs text-gray-400 mt-1 flex items-start gap-1.5 line-clamp-2">
+                      <MapPin className="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-0.5" />
+                      {f.address}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5 text-xs">
+                      <span className="text-yellow-400 font-bold">
+                        {formatCurrency(f.priceFrom || f.pricePerHour)} / h
+                      </span>
+
+                      <div className="flex items-center gap-3">
+                        <Link
+                          to={`/field/${f.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-bold text-gray-300 hover:text-yellow-400 transition-colors"
+                        >
+                          Chi tiết
+                        </Link>
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${
+                            f.lat != null ? `${f.lat},${f.lng}` : encodeURIComponent(f.address)
+                          }`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-bold text-yellow-400 hover:underline flex items-center gap-1"
+                        >
+                          <Navigation className="w-3 h-3" /> Chỉ đường
+                        </a>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Map Container */}
+            <div className="lg:col-span-2">
+              <div
+                ref={mapRef}
+                className="w-full h-[72vh] min-h-[450px] rounded-3xl border border-white/10 overflow-hidden bg-zinc-900 shadow-2xl z-0"
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

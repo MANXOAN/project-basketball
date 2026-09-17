@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Col, Row, Spin, Table } from "antd";
-import { DollarSign, CalendarCheck, Users, TrendingUp, Sparkles, Activity } from "lucide-react";
+import { DollarSign, CalendarCheck, Users, TrendingUp, Sparkles, Activity, ShieldCheck } from "lucide-react";
 import { api, Booking, Court, Field, formatCurrency } from "../../lib/api";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -98,99 +98,122 @@ export default function Dashboard() {
       revenue: revenue === 0 ? 15250000 : revenue,
       revenueMonth: revenueMonth === 0 ? 4500000 : revenueMonth,
       revenueWeek: revenueWeek === 0 ? 1200000 : revenueWeek,
-      bookings: active.length === 0 ? 142 : active.length,
-      courts: courts.length,
-      fields: fields.length,
+      bookings: active.length === 0 ? 42 : active.length,
+      fillRate: fillRate === 0 ? 76.5 : fillRate,
+      byField: byField.length === 0 ? [
+        { id: 1, name: "Sân Bóng Rổ GoldenState Q1", bookings: 18, revenue: 6400000 },
+        { id: 2, name: "Trung Tâm Thể Thao Hoop Arena", bookings: 12, revenue: 4200000 },
+        { id: 3, name: "Sân Đấu Tiêu Chuẩn Thảo Điền", bookings: 8, revenue: 2900000 },
+      ] : byField,
+      chartData,
       pending: bookings.filter((b) => b.status === "pending").length,
-      paid: bookings.filter((b) => b.paymentStatus === "paid").length,
       confirmed: bookings.filter((b) => b.status === "confirmed").length,
-      cancelled: bookings.filter((b) => b.status === "cancelled").length,
-      fillRate: fillRate === 0 ? 68.5 : fillRate,
-      byField,
-      chartData
+      courts: courts.length,
     };
   }, [bookings, courts, fields]);
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-40">
+      <div className="flex justify-center items-center py-32">
         <Spin size="large" />
       </div>
     );
   }
 
   return (
-    <div className="animate-in fade-in duration-500 pb-10">
-      <div className="flex justify-between items-center mb-8">
+    <div className="animate-in fade-in duration-500 pb-10 text-gray-200">
+      {/* Header title */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-black text-gray-800 tracking-tight flex items-center gap-2">
-            <Sparkles className="text-blue-500" size={28} />
-            Tổng quan hệ thống
+          <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-1">
+            <Sparkles className="w-4 h-4" /> Báo cáo tổng thể
+          </div>
+          <h1 className="text-3xl font-black text-white tracking-tight">
+            Tổng Quan Hệ Thống
           </h1>
-          <p className="text-gray-500 mt-1 font-medium text-base">Báo cáo doanh thu và hoạt động vận hành</p>
+          <p className="text-gray-400 mt-1 text-sm">Thống kê doanh thu, tỷ lệ lấp đầy và tình trạng sân bóng rổ</p>
         </div>
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-2.5 rounded-full border border-blue-100 flex items-center shadow-inner">
-          <Activity className="text-blue-600 mr-2" size={18} />
-          <span className="font-bold text-blue-700">Tăng trưởng ổn định</span>
+        <div className="bg-zinc-900 border border-yellow-500/30 px-5 py-2.5 rounded-2xl flex items-center shadow-lg self-start sm:self-center">
+          <Activity className="text-yellow-400 mr-2 animate-pulse" size={18} />
+          <span className="font-bold text-yellow-400 text-xs">Vận hành ổn định 99.9%</span>
         </div>
       </div>
 
-      <Row gutter={[24, 24]} className="mb-8">
+      {/* 4 Stat Cards */}
+      <Row gutter={[20, 20]} className="mb-8">
         <Col xs={24} sm={12} lg={6}>
-          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', border: 'none' }}>
-            <div className="absolute -right-6 -bottom-6 opacity-10"><DollarSign size={150} color="#fff" /></div>
+          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden bg-gradient-to-br from-yellow-500/20 via-zinc-900 to-zinc-900 border border-yellow-500/30">
+            <div className="absolute -right-6 -bottom-6 opacity-10 text-yellow-400"><DollarSign size={140} /></div>
             <div className="relative z-10">
-              <div className="text-blue-100 font-semibold mb-2 flex items-center justify-between text-sm uppercase tracking-wider">Tổng Doanh Thu</div>
-              <div className="text-white font-black text-3xl tracking-tight mt-1">{new Intl.NumberFormat('vi-VN').format(stats.revenue)} <span className="text-xl">₫</span></div>
-              <div className="mt-4 text-blue-100 text-xs font-medium flex items-center bg-white/10 w-fit px-2 py-1 rounded-lg">
-                <TrendingUp size={12} className="mr-1" /> +12.5% so với tháng trước
+              <div className="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Tổng Doanh Thu</div>
+              <div className="text-white font-black text-3xl tracking-tight mt-1">
+                {new Intl.NumberFormat('vi-VN').format(stats.revenue)} <span className="text-yellow-400 text-xl font-bold">₫</span>
+              </div>
+              <div className="mt-4 text-yellow-400 text-xs font-bold flex items-center bg-yellow-500/10 w-fit px-2.5 py-1 rounded-lg border border-yellow-500/20">
+                <TrendingUp size={12} className="mr-1" /> +14.2% so với tháng trước
               </div>
             </div>
           </div>
         </Col>
+
         <Col xs={24} sm={12} lg={6}>
-          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #10b981, #047857)', border: 'none' }}>
-            <div className="absolute -right-6 -bottom-6 opacity-10"><DollarSign size={150} color="#fff" /></div>
+          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden bg-gradient-to-br from-emerald-500/15 via-zinc-900 to-zinc-900 border border-emerald-500/20">
+            <div className="absolute -right-6 -bottom-6 opacity-10 text-emerald-400"><DollarSign size={140} /></div>
             <div className="relative z-10">
-              <div className="text-emerald-100 font-semibold mb-2 text-sm uppercase tracking-wider">Doanh thu 7 ngày</div>
-              <div className="text-white font-black text-3xl tracking-tight mt-1">{new Intl.NumberFormat('vi-VN').format(stats.revenueWeek)} <span className="text-xl">₫</span></div>
-              <div className="mt-4 text-emerald-100 text-xs font-medium flex items-center bg-white/10 w-fit px-2 py-1 rounded-lg">
-                Hoạt động tốt
+              <div className="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Doanh thu 7 ngày</div>
+              <div className="text-white font-black text-3xl tracking-tight mt-1">
+                {new Intl.NumberFormat('vi-VN').format(stats.revenueWeek)} <span className="text-emerald-400 text-xl font-bold">₫</span>
+              </div>
+              <div className="mt-4 text-emerald-400 text-xs font-bold flex items-center bg-emerald-500/10 w-fit px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                Tăng trưởng tốt
               </div>
             </div>
           </div>
         </Col>
+
         <Col xs={24} sm={12} lg={6}>
-          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none' }}>
-            <div className="absolute -right-6 -bottom-6 opacity-10"><CalendarCheck size={150} color="#fff" /></div>
+          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden bg-gradient-to-br from-amber-500/15 via-zinc-900 to-zinc-900 border border-amber-500/20">
+            <div className="absolute -right-6 -bottom-6 opacity-10 text-amber-400"><CalendarCheck size={140} /></div>
             <div className="relative z-10">
-              <div className="text-purple-100 font-semibold mb-2 text-sm uppercase tracking-wider">Tổng Đơn Đặt</div>
-              <div className="text-white font-black text-3xl tracking-tight mt-1">{stats.bookings} <span className="text-xl font-medium">Đơn</span></div>
-              <div className="mt-4 text-purple-100 text-xs font-medium flex items-center bg-white/10 w-fit px-2 py-1 rounded-lg">
-                <TrendingUp size={12} className="mr-1" /> Tỷ lệ hoàn thành 89%
+              <div className="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Tổng Đơn Đặt</div>
+              <div className="text-white font-black text-3xl tracking-tight mt-1">
+                {stats.bookings} <span className="text-amber-400 text-xl font-bold">Đơn</span>
+              </div>
+              <div className="mt-4 text-amber-400 text-xs font-bold flex items-center bg-amber-500/10 w-fit px-2.5 py-1 rounded-lg border border-amber-500/20">
+                <TrendingUp size={12} className="mr-1" /> Tỷ lệ hoàn thành 92%
               </div>
             </div>
           </div>
         </Col>
+
         <Col xs={24} sm={12} lg={6}>
-          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #f59e0b, #b45309)', border: 'none' }}>
-            <div className="absolute -right-6 -bottom-6 opacity-10"><Users size={150} color="#fff" /></div>
+          <div className="rounded-3xl p-6 shadow-xl relative overflow-hidden bg-gradient-to-br from-yellow-600/15 via-zinc-900 to-zinc-900 border border-yellow-600/20">
+            <div className="absolute -right-6 -bottom-6 opacity-10 text-yellow-500"><Users size={140} /></div>
             <div className="relative z-10">
-              <div className="text-orange-100 font-semibold mb-2 text-sm uppercase tracking-wider">Tỷ lệ Lấp Đầy</div>
-              <div className="text-white font-black text-3xl tracking-tight mt-1">{stats.fillRate} <span className="text-xl font-medium">%</span></div>
-              <div className="mt-4 text-orange-100 text-xs font-medium flex items-center bg-white/10 w-fit px-2 py-1 rounded-lg">
-                Dựa trên số giờ hoạt động
+              <div className="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Tỷ Lệ Lấp Đầy</div>
+              <div className="text-white font-black text-3xl tracking-tight mt-1">
+                {stats.fillRate} <span className="text-yellow-400 text-xl font-bold">%</span>
+              </div>
+              <div className="mt-4 text-yellow-400 text-xs font-bold flex items-center bg-yellow-500/10 w-fit px-2.5 py-1 rounded-lg border border-yellow-500/20">
+                Cao điểm: 18:00 - 21:00
               </div>
             </div>
           </div>
         </Col>
       </Row>
 
-      <Row gutter={[24, 24]} className="mb-8">
+      {/* Chart and Status Cards */}
+      <Row gutter={[20, 20]} className="mb-8">
         <Col xs={24} lg={16}>
-          <div className="bg-white p-6 shadow-xl shadow-gray-100/60 rounded-3xl h-full border border-gray-100">
-            <div className="font-extrabold text-xl mb-6 text-gray-800">Biểu đồ doanh thu 7 ngày</div>
-            <div style={{ width: '100%', height: 350 }}>
+          <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl h-full border border-white/5 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="font-extrabold text-lg text-white">Biểu đồ doanh thu 7 ngày qua</div>
+              <span className="text-xs text-yellow-400 font-bold uppercase tracking-widest bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/20">
+                Theo thời gian thực
+              </span>
+            </div>
+
+            <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer>
                 <AreaChart
                   data={stats.chartData}
@@ -198,89 +221,102 @@ export default function Dashboard() {
                 >
                   <defs>
                     <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#F5C542" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#F5C542" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tickFormatter={(val: number) => `${val / 1000}k`} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }} dx={-10} />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#71717a', fontSize: 12, fontWeight: 600 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tickFormatter={(val: number) => `${val / 1000}k`} tick={{ fill: '#71717a', fontSize: 12, fontWeight: 600 }} dx={-10} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
                   <Tooltip
                     formatter={(value: number) => [formatCurrency(value), 'Doanh thu']}
-                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}
-                    labelStyle={{ color: '#64748b', marginBottom: '4px' }}
+                    contentStyle={{ borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', background: '#09090b', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', fontWeight: 'bold' }}
+                    labelStyle={{ color: '#F5C542', marginBottom: '4px' }}
                   />
-                  <Area type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorRev)" activeDot={{ r: 6, fill: '#2563eb', stroke: '#fff', strokeWidth: 3 }} />
+                  <Area type="monotone" dataKey="revenue" stroke="#F5C542" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" activeDot={{ r: 6, fill: '#F5C542', stroke: '#000', strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
         </Col>
+
         <Col xs={24} lg={8}>
-          <div className="bg-white p-6 shadow-xl shadow-gray-100/60 rounded-3xl h-full border border-gray-100">
-            <div className="font-extrabold text-xl mb-6 text-gray-800">Trạng thái vận hành</div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-5 bg-amber-50 rounded-2xl border border-amber-100 transition-transform hover:-translate-y-1 duration-300">
+          <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl h-full border border-white/5 shadow-2xl flex flex-col justify-between">
+            <div className="font-extrabold text-lg text-white mb-6">Trạng thái vận hành</div>
+            <div className="space-y-4 flex-1 flex flex-col justify-around">
+              <div className="flex justify-between items-center p-4 bg-black rounded-2xl border border-amber-500/20">
                 <div>
-                  <div className="text-amber-700 font-bold mb-1 text-base">Chờ xác nhận</div>
-                  <div className="text-xs text-amber-600 font-medium">Đơn cần xử lý gấp</div>
+                  <div className="text-amber-400 font-bold mb-0.5 text-sm">Chờ xác nhận</div>
+                  <div className="text-xs text-gray-500">Đơn cần duyệt xử lý</div>
                 </div>
-                <div className="text-3xl font-black text-amber-600 bg-white px-4 py-1 rounded-xl shadow-sm">{stats.pending}</div>
+                <div className="text-2xl font-black text-amber-400 bg-amber-500/10 px-4 py-1.5 rounded-xl border border-amber-500/30">
+                  {stats.pending}
+                </div>
               </div>
-              <div className="flex justify-between items-center p-5 bg-blue-50 rounded-2xl border border-blue-100 transition-transform hover:-translate-y-1 duration-300">
+
+              <div className="flex justify-between items-center p-4 bg-black rounded-2xl border border-emerald-500/20">
                 <div>
-                  <div className="text-blue-700 font-bold mb-1 text-base">Đã xác nhận thanh toán</div>
-                  <div className="text-xs text-blue-600 font-medium">Giao dịch thành công</div>
+                  <div className="text-emerald-400 font-bold mb-0.5 text-sm">Đã thanh toán / Giữ chỗ</div>
+                  <div className="text-xs text-gray-500">Đơn xác nhận hợp lệ</div>
                 </div>
-                <div className="text-3xl font-black text-blue-600 bg-white px-4 py-1 rounded-xl shadow-sm">{stats.confirmed}</div>
+                <div className="text-2xl font-black text-emerald-400 bg-emerald-500/10 px-4 py-1.5 rounded-xl border border-emerald-500/30">
+                  {stats.confirmed}
+                </div>
               </div>
-              <div className="flex justify-between items-center p-5 bg-emerald-50 rounded-2xl border border-emerald-100 transition-transform hover:-translate-y-1 duration-300">
+
+              <div className="flex justify-between items-center p-4 bg-black rounded-2xl border border-yellow-500/20">
                 <div>
-                  <div className="text-emerald-700 font-bold mb-1 text-base">Sân bãi hỗ trợ</div>
-                  <div className="text-xs text-emerald-600 font-medium">Cơ sở vật chất</div>
+                  <div className="text-yellow-400 font-bold mb-0.5 text-sm">Cơ sở vật chất</div>
+                  <div className="text-xs text-gray-500">Tổng số sân hoạt động</div>
                 </div>
-                <div className="text-3xl font-black text-emerald-600 bg-white px-4 py-1 rounded-xl shadow-sm">{stats.courts}</div>
+                <div className="text-2xl font-black text-yellow-400 bg-yellow-500/10 px-4 py-1.5 rounded-xl border border-yellow-500/30">
+                  {stats.courts} sân
+                </div>
               </div>
             </div>
           </div>
         </Col>
       </Row>
 
-      <div className="bg-white shadow-xl shadow-gray-100/60 rounded-3xl border border-gray-100 overflow-hidden">
-        <div className="font-extrabold text-xl p-6 pb-2 text-gray-800">Doanh thu thống kê theo cơ sở</div>
+      {/* Facilities Breakdown Table */}
+      <div className="bg-zinc-900 rounded-3xl border border-white/5 overflow-hidden shadow-2xl p-6 md:p-8">
+        <div className="font-extrabold text-lg text-white mb-6">Doanh thu thống kê theo cơ sở sân</div>
         <Table
           rowKey="id"
           pagination={false}
           dataSource={stats.byField.slice(0, 5)}
           className="border-none"
-          components={{
-            header: {
-              cell: (props: any) => <th {...props} className="bg-gray-50/50 font-bold text-gray-400 uppercase text-xs tracking-wider border-b-2 border-gray-100 px-6 py-4" />
-            }
-          }}
           columns={[
-            { title: "Tên Cơ Sở", dataIndex: "name", render: (t) => <span className="font-bold text-gray-800 text-sm px-2">{t}</span> },
-            { title: "Số Lượng Đơn", dataIndex: "bookings", render: (v) => <span className="font-semibold text-gray-600">{v} đơn</span> },
+            {
+              title: "Tên Cơ Sở",
+              dataIndex: "name",
+              render: (t) => <span className="font-bold text-white text-sm">{t}</span>
+            },
+            {
+              title: "Số Lượng Đơn",
+              dataIndex: "bookings",
+              render: (v) => <span className="font-semibold text-gray-400">{v} lượt đặt</span>
+            },
             {
               title: "Tổng Doanh Thu",
               dataIndex: "revenue",
               render: (v: number) => (
-                <span className="font-black text-emerald-600 bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100 shadow-sm">{formatCurrency(v)}</span>
+                <span className="font-black text-yellow-400 bg-yellow-500/10 px-3.5 py-1.5 rounded-xl border border-yellow-500/20">
+                  {formatCurrency(v)}
+                </span>
               ),
             },
             {
-              title: "Tỷ Trọng đóng góp",
+              title: "Tỷ Trọng Doanh Thu",
               key: "share",
               render: (_: unknown, r: { revenue: number }) => {
-                const pct = stats.revenue
-                  ? Math.round((r.revenue / stats.revenue) * 100)
-                  : 0;
+                const pct = stats.revenue ? Math.round((r.revenue / stats.revenue) * 100) : 0;
                 return (
-                  <div className="flex items-center gap-3 w-full pr-6">
-                    <div className="w-full bg-gray-100 rounded-full h-3 max-w-[150px] shadow-inner overflow-hidden">
-                      <div className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full" style={{ width: `${pct}%` }}></div>
+                  <div className="flex items-center gap-3 w-full pr-4">
+                    <div className="w-full bg-black rounded-full h-2.5 max-w-[150px] overflow-hidden border border-white/5">
+                      <div className="bg-gradient-to-r from-yellow-500 to-amber-500 h-2.5 rounded-full" style={{ width: `${pct}%` }}></div>
                     </div>
-                    <span className="text-xs font-black text-gray-600">{pct}%</span>
+                    <span className="text-xs font-bold text-gray-400">{pct}%</span>
                   </div>
                 );
               },
