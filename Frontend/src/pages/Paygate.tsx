@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Smartphone } from "lucide-react";
+import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard } from "lucide-react";
 import { formatCurrency, api } from "../lib/api";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -9,7 +9,7 @@ export default function Paygate() {
     const location = useLocation();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
-    const [tab, setTab] = useState<"momo" | "card" | "transfer">("momo");
+    const [tab, setTab] = useState<"card" | "transfer">("card");
 
     // State thời gian đếm ngược: 15 phút = 900 giây
     const [timeLeft, setTimeLeft] = useState(15 * 60);
@@ -112,12 +112,6 @@ export default function Paygate() {
                 <div className="p-8">
                     <div className="flex bg-gray-100 p-1.5 rounded-xl mb-6">
                         <button
-                            onClick={() => setTab("momo")}
-                            className={`flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center transition ${tab === "momo" ? "bg-white text-pink-600 shadow" : "text-gray-500 hover:text-gray-700"}`}>
-                            <Smartphone className="w-4 h-4 mr-2" />
-                            MoMo
-                        </button>
-                        <button
                             onClick={() => setTab("card")}
                             className={`flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center transition ${tab === "card" ? "bg-white text-blue-600 shadow" : "text-gray-500 hover:text-gray-700"}`}>
                             <CreditCard className="w-4 h-4 mr-2" />
@@ -130,19 +124,6 @@ export default function Paygate() {
                             Chuyển khoản
                         </button>
                     </div>
-
-                    {tab === "momo" && (
-                        <div className="border border-pink-200 rounded-2xl p-6 bg-pink-50/50 text-center mb-6">
-                            <img src="https://upload.wikimedia.org/wikipedia/vi/f/fe/MoMo_Logo.png" alt="MoMo" className="h-10 mx-auto mb-4" />
-                            <p className="font-bold text-gray-800 mb-2">Quét mã MoMo</p>
-                            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm w-48 h-48 mx-auto flex items-center justify-center mb-4">
-                                <img onClick={() => handleConfirmPayment(true)} src={`https://quickchart.io/qr?text=MOMO-${amountToPay}-${payload.customer?.phone}&size=200&ecLevel=H`} alt="Momo QR" className="w-full h-full object-contain cursor-pointer hover:opacity-80 transition-opacity" title="Nhấn vào mã QR sau khi thanh toán để giả lập thành công" />
-                            </div>
-                            <p className="text-xs text-gray-500 max-w-xs mx-auto">
-                                Mở ứng dụng MoMo trên điện thoại và dùng tính năng Quét mã để thanh toán.
-                            </p>
-                        </div>
-                    )}
 
                     {tab === "card" && (
                         <div className="border border-blue-200 rounded-2xl p-6 bg-blue-50/40 mb-6 text-center">
@@ -172,7 +153,7 @@ export default function Paygate() {
                     )}
 
                     <p className="text-xs text-amber-600 mb-4 text-center font-medium bg-amber-50 rounded-lg p-2 max-w-sm mx-auto">
-                        * MoMo/Chuyển khoản (Sandbox) giả lập giao dịch.<br /> Vui lòng <b>nhấn trực tiếp vào mã QR</b> để xác nhận đã thanh toán xong.<br />
+                        * Chuyển khoản (Sandbox) giả lập giao dịch. Vui lòng <b>nhấn trực tiếp vào mã QR</b> để xác nhận đã thanh toán xong.<br />
                         * VNPay Sandbox sẽ chuyển sang trang thanh toán thử nghiệm. Vui lòng dùng thẻ test của VNPay.
                     </p>
 
