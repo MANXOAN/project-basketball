@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams, useLocation } from "react-router-do
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  CalendarDays, Clock, MapPin, User, CheckCircle2, Loader2, Wallet, QrCode, Tag
+  CalendarDays, Clock, MapPin, User, CheckCircle2, Loader2, Wallet, QrCode, Tag, Banknote
 } from "lucide-react";
 import {
   api, Court, Field, formatCurrency, TIME_SLOTS, getBookedSlots, isSlotConflict,
@@ -44,14 +44,18 @@ export default function Booking() {
     phone: getUser()?.phone || "",
     note: "",
   });
-  const [paymentMethod, setPaymentMethod] = useState<"deposit" | "full">("deposit");
+  const [paymentMethod, setPaymentMethod] = useState<"deposit" | "full" | "cash">("deposit");
   const [bookedSlots, setBookedSlots] = useState<Awaited<ReturnType<typeof getBookedSlots>>>([]);
 
   const [endDate, setEndDate] = useState("");
+  
+  // State dịch vụ đi kèm
   const [balls, setBalls] = useState(0);
   const [bibs, setBibs] = useState(0);
+  const [water, setWater] = useState(0);         // Nước lọc
+  const [mineralWater, setMineralWater] = useState(0); // Nước muối khoáng
 
-  // Helper tính thời gian kết thúc dựa trên giờ bắt đầu và thời lượng thuê
+  // Helper tính thời gian kết thúc
   const getEndTime = (startTime: string, dur: number): number => {
     const [hours, minutes] = startTime.split(":").map(Number);
     return hours + minutes / 60 + dur;
@@ -63,7 +67,7 @@ export default function Booking() {
     return getEndTime(time, dur) <= CLOSING_TIME;
   };
 
-  // Tự động điều chỉnh thời lượng về mức hợp lệ nhỏ nhất (1 giờ) nếu chuyển sang giờ muộn
+  // Tự động điều chỉnh thời lượng về 1 giờ nếu chuyển sang giờ muộn
   useEffect(() => {
     if (time && !isDurationValid(duration)) {
       const validOption = DURATIONS.find((d) => isDurationValid(d.value));
@@ -88,7 +92,8 @@ export default function Booking() {
     return dates;
   }, [date, endDate]);
 
-  const servicesTotal = (balls * 20000) + (bibs * 10000);
+  // Tính tổng tiền các dịch vụ phát sinh
+  const servicesTotal = (balls * 20000) + (bibs * 10000) + (water * 10000) + (mineralWater * 15000);
 
   const [voucherCode, setVoucherCode] = useState("");
   const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discountAmount: number; voucherId: number } | null>(null);
@@ -107,7 +112,9 @@ export default function Booking() {
     () => Math.max(0, subTotal - (appliedVoucher?.discountAmount || 0)),
     [subTotal, appliedVoucher]
   );
-  const deposit = total * 0.3; // 30% deposit
+
+  // Nếu thanh toán tiền mặt thì tiền cọc bằng 0
+  const deposit = paymentMethod === "cash" ? 0 : total * 0.3; 
 
   useEffect(() => {
     if (!fieldIdParam) {
@@ -156,7 +163,6 @@ export default function Booking() {
         paymentMethod: location.state.paymentMethod,
         checkinQrUrl
       });
-      // prevent infinite loop by clearing state
       navigate(location.pathname + location.search, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname, location.search]);
@@ -251,7 +257,6 @@ export default function Booking() {
 
     const user = getUser();
 
-    // Validate for all dates
     setLoading(true);
     try {
       for (const d of recurringDates) {
@@ -268,11 +273,19 @@ export default function Booking() {
       setLoading(false);
       return;
     }
-    setLoading(false);
 
+    // Gom danh sách dịch vụ mua/thuê kèm
     const services = [];
     if (balls > 0) services.push({ name: "Bóng", quantity: balls, price: 20000 });
     if (bibs > 0) services.push({ name: "Áo pitch", quantity: bibs, price: 10000 });
+    if (water > 0) services.push({ name: "Nước lọc", quantity: water, price: 10000 });
+    if (mineralWater > 0) services.push({ name: "Nước muối khoáng", quantity: mineralWater, price: 15000 });
+
+    const getPaymentStatus = () => {
+      if (paymentMethod === "full") return "paid";
+      if (paymentMethod === "deposit") return "deposit_paid";
+      return "unpaid";
+    };
 
     const payload = {
       fieldId: field.id,
@@ -293,13 +306,36 @@ export default function Booking() {
       },
       services,
       paymentMethod,
-      paymentStatus: paymentMethod === "deposit" ? "deposit_paid" : "paid",
+      paymentStatus: getPaymentStatus(),
       status: "pending",
       voucherCode: appliedVoucher?.code || "",
       discount: appliedVoucher?.discountAmount || 0,
       createdAt: new Date().toISOString(),
     };
 
+    // Nếu chọn thanh toán tiền mặt tại sân, lưu đơn luôn không qua Paygate
+    if (paymentMethod === "cash") {
+      try {
+        const res = await api.post("/bookings", payload);
+        const code = `BK${String(res.data.id).padStart(6, "0")}`;
+        const qrData = `CHECKIN-${code} | Sân: ${payload.fieldName} - ${payload.court} | Tên: ${payload.customer.fullName} | ĐT: ${payload.customer.phone}`;
+        const checkinQrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250`;
+
+        setSuccess({
+          code,
+          paymentMethod: "cash",
+          checkinQrUrl,
+        });
+        toast.success("Đặt sân thành công!");
+      } catch (err) {
+        toast.error("Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    setLoading(false);
     navigate("/paygate", { state: { payload, deposit, total } });
   };
 
@@ -333,10 +369,12 @@ export default function Booking() {
           <p className="text-gray-500 mb-4">
             Mã đơn: <span className="font-bold text-green-700">{success.code}</span>
           </p>
-          {paymentMethod === "full" ? (
+          {success.paymentMethod === "full" ? (
             <p className="text-sm text-green-600 mb-6">Đã thanh toán 100% · Cần admin xác nhận</p>
-          ) : (
+          ) : success.paymentMethod === "deposit" ? (
             <p className="text-sm text-amber-600 mb-6">Đã đặt cọc 30% · Cần admin xác nhận</p>
+          ) : (
+            <p className="text-sm text-blue-600 mb-6">Thanh toán tiền mặt tại sân · Cần admin xác nhận</p>
           )}
           {success.checkinQrUrl ? (
             <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6 inline-block w-full text-center">
@@ -543,6 +581,7 @@ export default function Booking() {
                   <button type="button" onClick={() => setBalls(balls + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
                 </div>
               </div>
+
               <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
                 <div>
                   <div className="font-bold text-gray-800 text-sm">Thuê áo pit (bib)</div>
@@ -554,6 +593,30 @@ export default function Booking() {
                   <button type="button" onClick={() => setBibs(bibs + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
                 </div>
               </div>
+
+              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
+                <div>
+                  <div className="font-bold text-gray-800 text-sm">Nước lọc</div>
+                  <div className="text-xs text-blue-600 font-semibold">10.000đ / chai / buổi</div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button type="button" onClick={() => setWater(Math.max(0, water - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
+                  <span className="font-bold min-w-[20px] text-center">{water}</span>
+                  <button type="button" onClick={() => setWater(water + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50/50">
+                <div>
+                  <div className="font-bold text-gray-800 text-sm">Nước muối khoáng</div>
+                  <div className="text-xs text-blue-600 font-semibold">15.000đ / chai / buổi</div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button type="button" onClick={() => setMineralWater(Math.max(0, mineralWater - 1))} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">-</button>
+                  <span className="font-bold min-w-[20px] text-center">{mineralWater}</span>
+                  <button type="button" onClick={() => setMineralWater(mineralWater + 1)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 font-bold hover:bg-gray-100">+</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -561,7 +624,7 @@ export default function Booking() {
             <h3 className="font-extrabold text-gray-900 mb-4 flex items-center">
               <Wallet className="w-4 h-4 mr-2 text-blue-600" /> Phương thức thanh toán
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <label
                 className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "deposit" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
                   }`}
@@ -571,17 +634,16 @@ export default function Booking() {
                     type="radio"
                     name="paymentMethod"
                     checked={paymentMethod === "deposit"}
-                    onChange={() => {
-                      setPaymentMethod("deposit");
-                    }}
+                    onChange={() => setPaymentMethod("deposit")}
                     className="w-4 h-4"
                   />
                   <div className="ml-3">
                     <div className="font-bold text-gray-800 text-sm">Đặt cọc (30%)</div>
-                    <div className="text-xs text-gray-500">Thanh toán chuyển khoản cọc</div>
+                    <div className="text-xs text-gray-500">Chuyển khoản cọc</div>
                   </div>
                 </div>
               </label>
+
               <label
                 className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "full" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
                   }`}
@@ -591,14 +653,33 @@ export default function Booking() {
                     type="radio"
                     name="paymentMethod"
                     checked={paymentMethod === "full"}
-                    onChange={() => {
-                      setPaymentMethod("full");
-                    }}
+                    onChange={() => setPaymentMethod("full")}
                     className="w-4 h-4"
                   />
                   <div className="ml-3">
-                    <div className="font-bold text-gray-800 text-sm">Thanh toán toàn bộ (100%)</div>
-                    <div className="text-xs text-gray-500">Chuyển khoản toàn bộ, không cần trả sau</div>
+                    <div className="font-bold text-gray-800 text-sm">Thanh toán 100%</div>
+                    <div className="text-xs text-gray-500">Chuyển khoản full</div>
+                  </div>
+                </div>
+              </label>
+
+              <label
+                className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50/50" : "border-gray-200"
+                  }`}
+              >
+                <div className="flex items-center">
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    checked={paymentMethod === "cash"}
+                    onChange={() => setPaymentMethod("cash")}
+                    className="w-4 h-4"
+                  />
+                  <div className="ml-3">
+                    <div className="font-bold text-gray-800 text-sm flex items-center gap-1">
+                      <Banknote className="w-3.5 h-3.5 text-green-600" /> Tiền mặt
+                    </div>
+                    <div className="text-xs text-gray-500">Thanh toán tại sân</div>
                   </div>
                 </div>
               </label>
@@ -662,10 +743,13 @@ export default function Booking() {
                   </div>
                 )}
 
-                <div className="flex justify-between border-b border-gray-100 pb-3 pt-2">
-                  <span className="text-gray-500">Tiền cọc (30%)</span>
-                  <span className="text-amber-500 font-bold">{formatCurrency(deposit)}</span>
-                </div>
+                {paymentMethod !== "cash" && (
+                  <div className="flex justify-between border-b border-gray-100 pb-3 pt-2">
+                    <span className="text-gray-500">Tiền cọc (30%)</span>
+                    <span className="text-amber-500 font-bold">{formatCurrency(deposit)}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between pt-1">
                   <span className="text-gray-500">Tổng tiền</span>
                   <span className="text-blue-600 text-lg font-extrabold">
@@ -686,6 +770,8 @@ export default function Booking() {
                 )}
                 {loading
                   ? "Đang xử lý..."
+                  : paymentMethod === "cash"
+                  ? "Xác nhận đặt sân"
                   : "Thanh toán online (Paygate)"}
               </button>
 
