@@ -60,7 +60,7 @@ export default function Paygate() {
             }
 
             toast.success(isAuto && tab === "transfer" ? "Chuyển khoản thành công!" : "Thanh toán & Đặt sân thành công!");
-            navigate("/booking", {
+            navigate("/my-bookings", {
                 state: {
                     successId: res.data.id,
                     paymentMethod: payload.paymentMethod,
