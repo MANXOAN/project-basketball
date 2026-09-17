@@ -42,8 +42,13 @@ export type Field = {
   closeTime: string;
   description: string;
   image: string;
+  imageUrl?: string;
+  type?: string;
+  location?: string;
+  rating?: number;
   courtCount: number;
   priceFrom: number;
+  pricePerHour?: number;
   status: string;
   /** Tọa độ bản đồ — tự chỉnh khi đổi địa chỉ */
   lat?: number;

@@ -1,67 +1,161 @@
 import { Link } from "react-router-dom";
+import { Phone, Trophy, ShieldCheck, Clock, Users } from "lucide-react";
 
 export default function Footer() {
-    return (
-        <footer className="bg-[#111827] text-gray-400 py-16 text-sm">
-            <div className="max-w-7xl mx-auto px-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
-                    <div>
-                        <div className="text-2xl font-extrabold tracking-tight mb-4 uppercase">
-                            <span className="text-blue-500">Golden</span>
-                            <span className="text-yellow-500">State</span>
-                        </div>
-                        <p className="mb-6 leading-relaxed">
-                            Nền tảng đặt sân thể thao trực tuyến hàng đầu Việt Nam. Kết nối người chơi với hơn 2,400 sân tốt nhất trên cả nước.
-                        </p>
-                        <div className="flex space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-gray-700 cursor-pointer transition">
-                                <span className="text-white text-xs">f</span>
-                            </div>
-                            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-gray-700 cursor-pointer transition">
-                                <span className="text-white text-xs">t</span>
-                            </div>
-                            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-gray-700 cursor-pointer transition">
-                                <span className="text-white text-xs">y</span>
-                            </div>
-                        </div>
-                    </div>
+  return (
+    <footer className="text-gray-400 text-sm bg-black border-t border-white/5 relative z-10">
+      {/* Stats bar */}
+      <div className="border-b border-white/5 bg-zinc-950/80">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {[
+              { value: "2,400+", label: "Sân bóng & cơ sở", icon: <Trophy className="w-5 h-5 text-yellow-400" /> },
+              { value: "150K+", label: "Vận động viên tin dùng", icon: <Users className="w-5 h-5 text-yellow-400" /> },
+              { value: "99.8%", label: "Khách hàng hài lòng", icon: <ShieldCheck className="w-5 h-5 text-yellow-400" /> },
+              { value: "24/7", label: "Hỗ trợ đặt sân tức thì", icon: <Clock className="w-5 h-5 text-yellow-400" /> },
+            ].map((stat) => (
+              <div key={stat.label} className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/5">
+                <div className="flex justify-center mb-2">{stat.icon}</div>
+                <div className="text-2xl font-black text-white">{stat.value}</div>
+                <div className="text-xs text-gray-500 mt-0.5 font-medium">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-                    <div>
-                        <h3 className="text-white font-bold mb-4 uppercase tracking-wider text-xs">Khám phá</h3>
-                        <ul className="space-y-3">
-                            <li><Link to="/fields" className="hover:text-white transition">Tìm sân</Link></li>
-                            <li><Link to="/map" className="hover:text-white transition">Bản đồ</Link></li>
-                            <li><Link to="/blog" className="hover:text-white transition">Blog</Link></li>
-                            <li><Link to="/about" className="hover:text-white transition">Giới thiệu</Link></li>
-                        </ul>
-                    </div>
-
-                    <div>
-                        <h3 className="text-white font-bold mb-4 uppercase tracking-wider text-xs">Hỗ trợ</h3>
-                        <ul className="space-y-3">
-                            <li><Link to="/contact" className="hover:text-white transition">Liên hệ</Link></li>
-                            <li><Link to="/terms" className="hover:text-white transition">Điều khoản</Link></li>
-                            <li><Link to="/privacy" className="hover:text-white transition">Chính sách</Link></li>
-                        </ul>
-                    </div>
-
-                    <div>
-                        <h3 className="text-white font-bold mb-4 uppercase tracking-wider text-xs">Đăng ký nhận ưu đãi</h3>
-                        <p className="mb-4">Nhận ngay voucher giảm 20% cho lần đặt sân đầu tiên</p>
-                        <div className="flex mb-6">
-                            <input type="email" placeholder="Email của bạn" className="bg-gray-800 border-none outline-none px-4 py-2 rounded-l-md w-full text-white text-sm" />
-                            <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-r-md font-bold transition">Đăng ký</button>
-                        </div>
-                        <p className="mb-1 text-xs">Hotline hỗ trợ 24/7</p>
-                        <p className="text-blue-500 font-bold text-lg">081 22 88 111</p>
-                    </div>
+      {/* Main footer */}
+      <div className="max-w-7xl mx-auto px-4 py-16">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+          {/* Brand */}
+          <div className="md:col-span-1">
+            <Link to="/" className="flex items-center gap-3 mb-5 group">
+              <div className="w-11 h-11 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 flex items-center justify-center text-2xl shadow-inner group-hover:scale-105 transition-transform">
+                🏀
+              </div>
+              <div>
+                <div className="text-xl font-extrabold tracking-tight text-white">
+                  Golden<span className="text-yellow-400">State</span>
                 </div>
-
-                <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center text-xs">
-                    <p>© 2026 Golden State - All rights reserved.</p>
-                    <p>Đăng ký chủ sân?</p>
-                </div>
+                <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">Basketball Club</div>
+              </div>
+            </Link>
+            <p className="text-gray-400 leading-relaxed text-sm mb-6">
+              Nền tảng đặt sân bóng rổ và thể thao chuyên nghiệp hàng đầu Việt Nam. Giữ chỗ tức thì trong 60 giây.
+            </p>
+            {/* Social icons */}
+            <div className="flex gap-2.5">
+              {[
+                { label: "Facebook", icon: "f" },
+                { label: "Instagram", icon: "📸" },
+                { label: "YouTube", icon: "▶" },
+                { label: "Zalo", icon: "Z" },
+              ].map((s) => (
+                <button
+                  key={s.label}
+                  title={s.label}
+                  className="w-9 h-9 rounded-xl bg-zinc-900 hover:bg-yellow-500 hover:text-black border border-white/10 flex items-center justify-center text-xs font-bold transition-all text-gray-300"
+                >
+                  {s.icon}
+                </button>
+              ))}
             </div>
-        </footer>
-    );
+          </div>
+
+          {/* Khám phá */}
+          <div>
+            <h3 className="text-white font-bold mb-5 uppercase tracking-wider text-xs flex items-center gap-2">
+              <span className="w-3 h-0.5 bg-yellow-500 rounded"></span>
+              Khám phá
+            </h3>
+            <ul className="space-y-3">
+              {[
+                { to: "/fields", label: "🏀 Tìm sân bóng" },
+                { to: "/map", label: "🗺️ Bản đồ sân bãi" },
+                { to: "/blog", label: "📖 Tin tức & Giải đấu" },
+                { to: "/about", label: "ℹ️ Về chúng tôi" },
+              ].map((item) => (
+                <li key={item.to}>
+                  <Link
+                    to={item.to}
+                    className="hover:text-yellow-400 transition-colors hover:translate-x-1 inline-flex items-center gap-1.5 duration-200 text-sm"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Hỗ trợ */}
+          <div>
+            <h3 className="text-white font-bold mb-5 uppercase tracking-wider text-xs flex items-center gap-2">
+              <span className="w-3 h-0.5 bg-yellow-500 rounded"></span>
+              Hỗ trợ
+            </h3>
+            <ul className="space-y-3">
+              {[
+                { to: "/contact", label: "📞 Liên hệ hỗ trợ" },
+                { to: "/terms", label: "📋 Quy chế hoạt động" },
+                { to: "/privacy", label: "🔒 Chính sách bảo mật" },
+                { to: "/my-bookings", label: "🎫 Tra cứu đơn hàng" },
+              ].map((item) => (
+                <li key={item.to}>
+                  <Link
+                    to={item.to}
+                    className="hover:text-yellow-400 transition-colors hover:translate-x-1 inline-flex items-center gap-1.5 duration-200 text-sm"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Newsletter & Hotline */}
+          <div>
+            <h3 className="text-white font-bold mb-5 uppercase tracking-wider text-xs flex items-center gap-2">
+              <span className="w-3 h-0.5 bg-yellow-500 rounded"></span>
+              Ưu đãi thành viên
+            </h3>
+            <p className="text-gray-400 text-sm mb-4 leading-relaxed">
+              Nhận ngay voucher <span className="text-yellow-400 font-bold">giảm 20%</span> cho lần đặt sân đầu tiên.
+            </p>
+            <div className="flex mb-6 rounded-xl overflow-hidden border border-white/10 bg-zinc-900 focus-within:border-yellow-500/50 transition-colors">
+              <input
+                type="email"
+                placeholder="Email của bạn..."
+                className="bg-transparent border-none outline-none px-4 py-3 flex-1 text-white text-sm placeholder:text-gray-600"
+              />
+              <button className="btn-primary px-5 py-3 font-bold text-xs whitespace-nowrap">
+                Đăng ký
+              </button>
+            </div>
+
+            <div className="bg-zinc-950 rounded-2xl p-4 border border-white/5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400 shrink-0">
+                <Phone className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Hotline 24/7</p>
+                <a href="tel:0812288111" className="text-yellow-400 font-black text-lg hover:text-yellow-300 transition-colors">
+                  081 22 88 111
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div className="border-t border-white/5 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-gray-500">
+          <p>© 2026 <span className="text-gray-300 font-semibold">GoldenState Sports</span> – Bản quyền thuộc về CLB.</p>
+          <div className="flex items-center gap-4">
+            <span>🇻🇳 Việt Nam</span>
+            <span>·</span>
+            <Link to="/contact" className="hover:text-yellow-400 transition-colors">Hợp tác nhượng quyền sân →</Link>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
 }

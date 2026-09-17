@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   Heart, Share2, MapPin, Clock, Phone, LayoutGrid, CheckCircle2,
-  CalendarDays, Map, Loader2,
+  CalendarDays, Map, Loader2, ChevronRight, Star,
 } from "lucide-react";
 import { api, Court, Field, formatCurrency, TIME_SLOTS, getBookingsByDate, Booking } from "../lib/api";
 import toast from "react-hot-toast";
@@ -17,6 +17,7 @@ export default function Detail() {
     new Date().toISOString().slice(0, 10)
   );
   const [bookedByCourt, setBookedByCourt] = useState<Record<number, Booking[]>>({});
+  const [savedHeart, setSavedHeart] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -42,23 +43,18 @@ export default function Detail() {
     let cancelled = false;
     (async () => {
       try {
-        // 1 request cho cả ngày, lọc theo courtId ở client
         const list = await getBookingsByDate(selectedDate);
         if (cancelled) return;
         const map: Record<number, Booking[]> = {};
         for (const c of courts) {
-          map[c.id] = list.filter(
-            (b) => b.courtId === c.id && b.status !== "cancelled"
-          );
+          map[c.id] = list.filter((b) => b.courtId === c.id && b.status !== "cancelled");
         }
         setBookedByCourt(map);
       } catch {
         if (!cancelled) setBookedByCourt({});
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [courts, selectedDate]);
 
   const isBooked = (courtId: number, slot: string) => {
@@ -76,243 +72,327 @@ export default function Detail() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-32">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="flex flex-col items-center justify-center py-36 gap-3 bg-black min-h-screen">
+        <Loader2 className="w-10 h-10 animate-spin text-yellow-500" />
+        <p className="text-gray-400 text-sm font-medium">Đang tải thông tin cơ sở...</p>
       </div>
     );
   }
 
   if (!field) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <p className="text-gray-500 mb-4">Không tìm thấy cơ sở</p>
-        <Link to="/fields" className="text-blue-600 font-semibold">
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center bg-black min-h-screen">
+        <div className="text-6xl mb-4 opacity-70">🏟️</div>
+        <p className="text-gray-500 mb-6 text-lg">Không tìm thấy cơ sở này</p>
+        <Link to="/fields" className="btn-outline px-6 py-3 rounded-xl font-bold text-sm inline-block shadow-lg">
           ← Quay lại tìm sân
         </Link>
       </div>
     );
   }
 
+  const activeCourts = courts.filter((c) => c.status === "active");
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="text-sm font-medium text-gray-400 flex items-center space-x-2 mb-6">
-        <Link to="/" className="text-blue-600 hover:underline">Trang chủ</Link>
-        <span>/</span>
-        <Link to="/fields" className="text-blue-600 hover:underline">Tìm sân</Link>
-        <span>/</span>
-        <span className="text-gray-600">{field.name}</span>
-      </div>
+    <div className="bg-black text-gray-300 min-h-screen">
+      {/* ── Hero Image ── */}
+      <div className="w-full h-80 md:h-[500px] relative overflow-hidden bg-zinc-900 border-b border-white/5">
+        <img src={field.image || field.imageUrl} alt={field.name} className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/20" />
 
-      <div className="w-full h-64 md:h-96 bg-gray-200 rounded-3xl overflow-hidden mb-8 relative">
-        <img src={field.image} alt={field.name} className="w-full h-full object-cover" />
-      </div>
+        {/* Breadcrumb on image */}
+        <div className="absolute top-6 left-4 md:left-8 text-xs text-gray-400 flex items-center gap-2 bg-black/40 border border-white/10 backdrop-blur-md px-4 py-2 rounded-full uppercase tracking-wider font-bold">
+          <Link to="/" className="hover:text-yellow-400 transition-colors">Trang chủ</Link>
+          <ChevronRight className="w-3 h-3 text-gray-500" />
+          <Link to="/fields" className="hover:text-yellow-400 transition-colors">Tìm sân</Link>
+          <ChevronRight className="w-3 h-3 text-gray-500" />
+          <span className="text-white">{field.name}</span>
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <div className="flex justify-between items-start mb-4">
-              <div className="bg-gray-100 px-3 py-1.5 rounded-full flex items-center text-xs font-bold text-gray-700">
-                {field.sportLabel}
-              </div>
-              <div className="flex space-x-2">
-                <button className="flex items-center border border-gray-200 px-3 py-1.5 rounded-full text-xs font-bold text-gray-600 hover:bg-gray-50">
-                  <Heart className="w-3.5 h-3.5 mr-1.5" /> Lưu
-                </button>
-                <button className="flex items-center border border-gray-200 px-3 py-1.5 rounded-full text-xs font-bold text-gray-600 hover:bg-gray-50">
-                  <Share2 className="w-3.5 h-3.5 mr-1.5" /> Chia sẻ
-                </button>
-              </div>
+        {/* Actions on image */}
+        <div className="absolute top-6 right-4 md:right-8 flex gap-3">
+          <button
+            onClick={() => setSavedHeart(!savedHeart)}
+            className={`p-3 rounded-full backdrop-blur-md transition-all border ${savedHeart ? "bg-red-500/20 text-red-500 border-red-500/30" : "bg-black/40 text-white hover:bg-black/60 border-white/10 hover:text-yellow-400"}`}
+          >
+            <Heart className={`w-5 h-5 ${savedHeart ? "fill-red-500" : ""}`} />
+          </button>
+          <button className="p-3 rounded-full bg-black/40 backdrop-blur-md text-white hover:bg-black/60 hover:text-yellow-400 transition-all border border-white/10">
+            <Share2 className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Info overlay at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 px-4 md:px-8 pb-8 max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+              <span className="inline-block bg-yellow-500 text-black text-xs font-bold px-3 py-1 rounded-full mb-3 uppercase tracking-wider">
+                {field.sportLabel || field.type}
+              </span>
+              <h1 className="text-3xl md:text-5xl font-extrabold text-white drop-shadow-xl mb-3 tracking-tight">
+                {field.name}
+              </h1>
+              <p className="text-gray-400 text-sm md:text-base flex items-center gap-2 mt-1">
+                <MapPin className="w-4 h-4 text-yellow-500" /> {field.address}
+              </p>
             </div>
-
-            <h1 className="text-3xl font-extrabold text-gray-900 mb-3">{field.name}</h1>
-            <p className="text-gray-500 font-medium flex items-start mb-6 text-sm">
-              <MapPin className="w-4 h-4 mr-1.5 text-blue-600 flex-shrink-0 mt-0.5" />
-              {field.address}
-            </p>
-
-            <div className="flex flex-wrap gap-y-4 gap-x-6 text-sm font-medium text-gray-700">
-              <div className="flex items-center">
-                <Clock className="w-4 h-4 mr-1.5 text-gray-400" /> Mở cửa:{" "}
-                <span className="font-bold ml-1">
-                  {field.openTime} - {field.closeTime}
-                </span>
-              </div>
-              <div className="flex items-center">
-                <Phone className="w-4 h-4 mr-1.5 text-blue-600" /> Hotline:{" "}
-                <span className="font-bold text-blue-600 ml-1">{field.phone}</span>
-              </div>
-              <div className="flex items-center">
-                <LayoutGrid className="w-4 h-4 mr-1.5 text-gray-400" /> Quy mô:{" "}
-                <span className="font-bold ml-1">{courts.length} sân</span>
-              </div>
-              <div className="flex items-center text-blue-600">
-                <CheckCircle2 className="w-4 h-4 mr-1.5" /> Đang hoạt động
-              </div>
-            </div>
-
-            <hr className="my-8 border-gray-100" />
-            <h3 className="font-extrabold text-gray-900 mb-4 text-lg">Giới thiệu</h3>
-            <p className="text-gray-600 text-sm leading-relaxed">{field.description}</p>
-          </div>
-
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-blue-700 mb-4 flex items-center">
-              <LayoutGrid className="w-4 h-4 mr-2" /> Danh sách sân ({courts.length})
-            </h3>
-            <div className="flex flex-wrap gap-3">
-              {courts.map((c) => (
-                <div
-                  key={c.id}
-                  className="border border-gray-100 rounded-xl px-4 py-2 flex items-center text-sm font-semibold shadow-sm"
-                >
-                  {c.name}
-                  <span className="text-gray-400 text-xs ml-2 font-normal">
-                    {formatCurrency(c.price)}/h
-                  </span>
-                  {c.status === "maintenance" && (
-                    <span className="ml-2 text-xs text-orange-500">Bảo trì</span>
-                  )}
-                </div>
-              ))}
+            <div className="flex items-center gap-2 bg-black/40 border border-white/10 backdrop-blur-md px-4 py-3 rounded-2xl w-fit">
+              <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
+              <span className="text-white font-extrabold text-xl">{field.rating?.toFixed(1) || "4.8"}</span>
+              <span className="text-gray-400 text-xs font-medium ml-1">/ 5 (240 đánh giá)</span>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-              <h3 className="font-extrabold text-blue-700 flex items-center">
-                <Clock className="w-5 h-5 mr-2" /> Lịch trống
+      {/* ── Content ── */}
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+          {/* Left column */}
+          <div className="lg:col-span-2 space-y-8">
+
+            {/* Info card */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              {/* Quick stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 pb-8 border-b border-white/10">
+                {[
+                  { icon: <Clock className="w-6 h-6 text-yellow-500" />, label: "Giờ mở cửa", value: `${field.openTime} – ${field.closeTime}` },
+                  { icon: <Phone className="w-6 h-6 text-yellow-500" />, label: "Hotline", value: field.phone, link: `tel:${field.phone}` },
+                  { icon: <LayoutGrid className="w-6 h-6 text-yellow-500" />, label: "Số sân", value: `${courts.length} sân` },
+                  { icon: <CheckCircle2 className="w-6 h-6 text-green-500" />, label: "Trạng thái", value: "Đang mở" },
+                ].map((stat, i) => (
+                  <div key={i} className="text-center p-4 bg-black rounded-2xl border border-white/5">
+                    <div className="flex justify-center mb-3">{stat.icon}</div>
+                    <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1.5">{stat.label}</div>
+                    {stat.link ? (
+                      <a href={stat.link} className="text-sm font-extrabold text-yellow-400 hover:text-yellow-300 transition-colors">{stat.value}</a>
+                    ) : (
+                      <div className="text-sm font-extrabold text-white">{stat.value}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <h3 className="font-extrabold text-white mb-4 text-xl">Giới thiệu cơ sở</h3>
+              <p className="text-gray-400 text-sm md:text-base leading-relaxed">{field.description}</p>
+            </div>
+
+            {/* Courts list */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="font-extrabold text-white mb-6 flex items-center gap-3 text-xl">
+                <LayoutGrid className="w-6 h-6 text-yellow-500" />
+                Danh sách sân ({courts.length})
               </h3>
-              <input
-                type="date"
-                value={selectedDate}
-                min={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
-              />
-            </div>
-
-            {courts
-              .filter((c) => c.status === "active")
-              .map((c) => (
-                <div key={c.id} className="mb-8">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="font-extrabold text-gray-900">{c.name}</div>
-                    <div className="font-extrabold text-blue-600 text-sm">
-                      {formatCurrency(c.price)}/h
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {courts.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`flex items-center justify-between px-5 py-4 rounded-2xl border ${
+                      c.status === "maintenance"
+                        ? "border-red-500/20 bg-red-500/5"
+                        : "border-white/5 bg-black hover:border-yellow-500/30 transition-colors"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-white text-base mb-0.5">{c.name}</div>
+                      {c.status === "maintenance" && (
+                        <span className="text-xs text-red-500 font-bold tracking-wide">🔧 Đang bảo trì</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-yellow-400 font-extrabold text-base">{formatCurrency(c.price)}</div>
+                      <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">/ giờ</div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                ))}
+              </div>
+            </div>
+
+            {/* Availability */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-white/10">
+                <h3 className="font-extrabold text-white flex items-center gap-3 text-xl">
+                  <Clock className="w-6 h-6 text-yellow-500" />
+                  Lịch trống
+                </h3>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-black border border-white/10 focus:border-yellow-500 rounded-xl px-4 py-2.5 text-sm outline-none transition-all font-medium text-white color-scheme-dark"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-8 mb-8 text-xs font-bold text-gray-400 tracking-wider uppercase">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-yellow-500/20 border-2 border-yellow-500/50 rounded flex items-center justify-center" />
+                  Có thể đặt
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-zinc-800 border-2 border-zinc-700 rounded" />
+                  Đã đặt
+                </div>
+              </div>
+
+              {activeCourts.map((c) => (
+                <div key={c.id} className="mb-8 last:mb-0 bg-black p-5 rounded-2xl border border-white/5">
+                  <div className="flex justify-between items-center mb-5">
+                    <div className="font-extrabold text-white flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 bg-yellow-500 rounded-full animate-pulse-glow" />
+                      {c.name}
+                    </div>
+                    <div className="font-bold text-yellow-400 text-sm bg-yellow-500/10 px-3 py-1.5 rounded-full border border-yellow-500/20">
+                      {formatCurrency(c.price)} / h
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3">
                     {TIME_SLOTS.map((t) => {
                       const booked = isBooked(c.id, t);
                       return (
-                        <button
-                          key={t}
-                          type="button"
-                          disabled={booked}
-                          onClick={() =>
-                            navigate(
-                              `/booking?fieldId=${field.id}&courtId=${c.id}&date=${selectedDate}&time=${t}`
-                            )
-                          }
-                          className={`rounded-lg py-2 text-center text-xs font-bold border transition ${booked
-                              ? "bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed"
-                              : "border-gray-200 text-gray-700 hover:border-blue-500 hover:text-blue-600"
-                            }`}
-                        >
-                          {t}
-                        </button>
+                         <button
+                           key={t}
+                           type="button"
+                           disabled={booked}
+                           onClick={() =>
+                             navigate(`/booking?fieldId=${field.id}&courtId=${c.id}&date=${selectedDate}&time=${t}`)
+                           }
+                           className={`slot-btn rounded-xl py-2.5 text-center text-xs font-bold transition-all ${
+                             booked
+                               ? "bg-zinc-800 text-zinc-600 border border-zinc-700 cursor-not-allowed"
+                               : "bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black hover:border-yellow-500"
+                           }`}
+                         >
+                           {t}
+                         </button>
                       );
                     })}
                   </div>
                 </div>
               ))}
 
-            <div className="flex items-center space-x-6 mt-2 text-xs font-bold text-gray-500">
-              <div className="flex items-center">
-                <div className="w-3 h-3 bg-white border border-gray-300 rounded-sm mr-2" /> Trống
-              </div>
-              <div className="flex items-center">
-                <div className="w-3 h-3 bg-gray-200 rounded-sm mr-2" /> Đã đặt
-              </div>
-            </div>
-
-            <button
-              onClick={() => navigate(`/booking?fieldId=${field.id}`)}
-              className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold flex justify-center items-center transition shadow-lg"
-            >
-              <CalendarDays className="w-4 h-4 mr-2" /> Đặt sân ngay
-            </button>
-          </div>
-
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-            <h3 className="font-extrabold text-blue-700 mb-4 flex items-center">
-              <Map className="w-5 h-5 mr-2" /> Vị trí
-            </h3>
-            <p className="text-sm text-gray-600 mb-4 flex items-center">
-              <MapPin className="w-4 h-4 mr-2 text-blue-600 shrink-0" />
-              {field.address}
-            </p>
-            {/* Google Maps embed */}
-            <div className="w-full h-64 md:h-80 rounded-2xl overflow-hidden border border-gray-200 mb-4 bg-gray-100">
-              <iframe
-                title={`Bản đồ ${field.name}`}
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(
-                  field.address + ", " + (field.city || "Việt Nam")
-                )}&z=15&output=embed`}
-                allowFullScreen
-              />
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                  field.address
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center border border-blue-500 text-blue-600 px-4 py-2 rounded-full text-sm font-bold hover:bg-blue-50 transition"
-              >
-                <MapPin className="w-4 h-4 mr-2" /> Chỉ đường
-              </a>
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  field.address
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center border border-gray-300 text-gray-600 px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-50 transition"
-              >
-                <Map className="w-4 h-4 mr-2" /> Mở Google Maps
-              </a>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-1">
-          <div className="sticky top-24 space-y-6">
-            <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
-              <div className="text-2xl font-extrabold text-blue-600 mb-2">
-                từ {formatCurrency(field.priceFrom)}
-              </div>
-              <div className="text-sm text-gray-500 mb-6">/ giờ · {courts.length} sân</div>
               <button
                 onClick={() => navigate(`/booking?fieldId=${field.id}`)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold flex justify-center items-center transition mb-3"
+                className="btn-primary w-full mt-6 text-black py-4 rounded-xl font-bold flex justify-center items-center gap-2 text-base"
               >
-                <CalendarDays className="w-5 h-5 mr-2" /> Đặt sân ngay
+                <CalendarDays className="w-5 h-5" /> Đặt sân ngay
               </button>
-              <a
-                href={`tel:${field.phone}`}
-                className="w-full bg-white border-2 border-blue-500 text-blue-600 py-3.5 rounded-xl font-bold flex justify-center items-center"
-              >
-                <Phone className="w-5 h-5 mr-2" /> Gọi: {field.phone}
-              </a>
-              <div className="text-center mt-4 text-xs font-semibold text-gray-400">
-                🛡️ Đặt cọc an toàn - Hủy trước 2h miễn phí
+            </div>
+
+            {/* Map */}
+            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
+              <h3 className="font-extrabold text-white mb-6 flex items-center gap-3 text-xl">
+                <Map className="w-6 h-6 text-yellow-500" />
+                Vị trí sân
+              </h3>
+              <p className="text-sm text-gray-300 mb-6 flex items-center gap-3 bg-black border border-white/5 px-5 py-4 rounded-2xl">
+                <MapPin className="w-5 h-5 text-yellow-500 shrink-0" />
+                {field.address}
+              </p>
+              <div className="w-full h-64 md:h-96 rounded-2xl overflow-hidden border border-white/5 mb-6 opacity-90 hover:opacity-100 transition-opacity">
+                <iframe
+                  title={`Bản đồ ${field.name}`}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 0 }}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(field.address + ", " + (field.city || "Việt Nam"))}&z=15&output=embed`}
+                  allowFullScreen
+                />
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(field.address)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-primary inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm transition-all"
+                >
+                  <MapPin className="w-4 h-4" /> Chỉ đường
+                </a>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(field.address)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-outline inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm transition-all"
+                >
+                  <Map className="w-4 h-4" /> Google Maps
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Right – Sticky Booking Sidebar */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-24 space-y-6">
+              <div className="bg-zinc-900 rounded-3xl border border-white/5 overflow-hidden shadow-2xl shadow-black/50">
+                {/* Price header */}
+                <div className="p-8 bg-gradient-to-br from-yellow-500/20 via-black to-black border-b border-white/5">
+                  <div className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Giá thuê sân từ</div>
+                  <div className="text-4xl font-extrabold text-yellow-400 mb-3">
+                    {formatCurrency(field.priceFrom || field.pricePerHour || 0)}
+                    <span className="text-gray-500 text-sm font-bold tracking-wider uppercase ml-1">/ giờ</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/5 w-fit px-3 py-1.5 rounded-lg border border-white/5">
+                    <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                    <span className="text-white font-bold text-sm">{field.rating?.toFixed(1) || "4.8"}</span>
+                    <span className="text-gray-400 text-xs font-medium">· {courts.length} sân</span>
+                  </div>
+                </div>
+
+                <div className="p-8 space-y-4">
+                  <button
+                    onClick={() => navigate(`/booking?fieldId=${field.id}`)}
+                    className="btn-primary w-full py-4 rounded-xl font-extrabold flex justify-center items-center gap-2 text-base"
+                  >
+                    <CalendarDays className="w-5 h-5" /> Đặt sân ngay
+                  </button>
+                  <a
+                    href={`tel:${field.phone}`}
+                    className="btn-outline w-full py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all text-sm"
+                  >
+                    <Phone className="w-4 h-4" /> Liên hệ: {field.phone}
+                  </a>
+
+                  {/* Trust badges */}
+                  <div className="pt-6 mt-6 border-t border-white/5 space-y-4">
+                    {[
+                      { icon: "🛡️", text: "Đặt cọc an toàn & bảo mật" },
+                      { icon: "⏱️", text: "Hủy miễn phí trước 2 giờ" },
+                      { icon: "✅", text: "Xác nhận tức thì qua email" },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center gap-3 text-sm text-gray-400">
+                        <span className="text-lg opacity-80">{item.icon}</span>
+                        <span className="font-medium">{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Courts summary */}
+              <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6">
+                <h4 className="font-extrabold text-white text-sm mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <LayoutGrid className="w-4 h-4 text-yellow-500" /> Sân đang hoạt động
+                </h4>
+                <div className="space-y-2">
+                  {activeCourts.slice(0, 4).map((c) => (
+                    <div key={c.id} className="flex justify-between items-center text-sm p-3 bg-black rounded-xl border border-white/5">
+                      <span className="text-gray-300 font-bold flex items-center gap-2">
+                        <span className="w-2 h-2 bg-yellow-500 rounded-full" /> {c.name}
+                      </span>
+                      <span className="text-yellow-400 font-extrabold">{formatCurrency(c.price)}</span>
+                    </div>
+                  ))}
+                  {activeCourts.length > 4 && (
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest text-center pt-3">
+                      + {activeCourts.length - 4} sân khác
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>

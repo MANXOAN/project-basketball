@@ -8,14 +8,15 @@ import {
   MessageSquare,
   Phone,
   Send,
+  Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 const contactDetails = [
-  { icon: MapPin, label: "Địa chỉ", value: "Tầng 3, 21 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh" },
-  { icon: Phone, label: "Hotline", value: "081 22 88 111" },
-  { icon: Mail, label: "Email", value: "hello@goldenstate.vn" },
-  { icon: Clock3, label: "Giờ làm việc", value: "Thứ 2 - Chủ nhật · 08:00 - 22:00" },
+  { icon: MapPin, label: "Trụ sở chính", value: "Tầng 3, 21 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh" },
+  { icon: Phone, label: "Tổng đài hỗ trợ 24/7", value: "081 22 88 111" },
+  { icon: Mail, label: "Email liên hệ", value: "support@goldenstate.vn" },
+  { icon: Clock3, label: "Giờ hoạt động sân", value: "Thứ 2 - Chủ nhật · 06:00 - 22:00" },
 ];
 
 export default function Contact() {
@@ -25,70 +26,138 @@ export default function Contact() {
     event.preventDefault();
     setSent(true);
     event.currentTarget.reset();
-    toast.success("Đã gửi lời nhắn đến Golden State");
+    toast.success("Đã gửi lời nhắn đến Ban quản trị GoldenState!");
   };
 
   return (
-    <div className="bg-slate-50 text-slate-900">
-      <section className="bg-slate-950 px-4 py-20 text-white sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
+    <div className="bg-black text-gray-200 min-h-screen">
+      {/* Header Banner */}
+      <section className="bg-zinc-950 border-b border-white/5 px-4 py-20 sm:px-6 lg:px-8 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="mx-auto max-w-7xl relative z-10">
           <div className="max-w-2xl">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-300/20 bg-blue-400/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-blue-200">
-              <MessageSquare className="h-4 w-4" /> Luôn sẵn sàng lắng nghe
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-yellow-400">
+              <MessageSquare className="h-4 w-4" /> Luôn sẵn sàng hỗ trợ bạn
             </div>
-            <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Liên hệ Golden State</h1>
-            <p className="mt-5 text-base leading-8 text-slate-300 sm:text-lg">
-              Bạn cần hỗ trợ đặt sân, muốn hợp tác hoặc có góp ý? Gửi lời nhắn, đội ngũ của chúng tôi sẽ phản hồi sớm nhất.
+            <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
+              Liên Hệ Golden State
+            </h1>
+            <p className="mt-4 text-base leading-relaxed text-gray-400 sm:text-lg">
+              Bạn cần hỗ trợ đặt sân, hợp tác nhượng quyền sân bóng hay có câu hỏi cần giải đáp? Hãy gửi tin nhắn cho chúng tôi.
             </p>
           </div>
         </div>
       </section>
 
-      <main className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[.8fr_1.2fr] lg:px-8 lg:py-16">
-        <section className="rounded-3xl bg-blue-700 p-7 text-white shadow-xl shadow-blue-900/10 sm:p-9">
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-200">Thông tin liên hệ</p>
-          <h2 className="mt-3 text-2xl font-black">Kết nối với chúng tôi</h2>
-          <p className="mt-3 text-sm leading-7 text-blue-100">Đội ngũ hỗ trợ luôn sẵn sàng giúp bạn có trải nghiệm đặt sân thuận tiện hơn.</p>
+      {/* Main Content */}
+      <main className="mx-auto grid max-w-7xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-[.8fr_1.2fr] lg:px-8">
+        {/* Contact Info Card */}
+        <section className="rounded-3xl bg-zinc-900 border border-white/10 p-8 text-white shadow-2xl relative overflow-hidden h-fit">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <p className="text-xs font-bold uppercase tracking-widest text-yellow-400">Kênh kết nối trực tiếp</p>
+          <h2 className="mt-2 text-2xl font-black">Thông Tin Liên Lạc</h2>
+          <p className="mt-2 text-xs text-gray-400 leading-relaxed">
+            Đội ngũ CSKH và kỹ thuật viên túc trực liên tục để đảm bảo trận đấu của bạn diễn ra thuận lợi.
+          </p>
+
           <div className="mt-8 space-y-6">
             {contactDetails.map(({ icon: Icon, label, value }) => (
-              <div key={label} className="flex gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15"><Icon className="h-5 w-5" /></div>
-                <div><p className="text-xs font-bold uppercase tracking-wider text-blue-200">{label}</p><p className="mt-1 text-sm font-semibold leading-6 text-white">{value}</p></div>
+              <div key={label} className="flex gap-4 items-start">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black border border-white/10 text-yellow-400">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-white">{value}</p>
+                </div>
               </div>
             ))}
           </div>
-          <div className="mt-10 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm leading-6 text-blue-50">Chúng tôi thường phản hồi tin nhắn trong vòng 24 giờ làm việc.</div>
+
+          <div className="mt-10 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4 text-xs leading-relaxed text-yellow-300">
+            ⚡ Chúng tôi cam kết phản hồi các yêu cầu đặt sân và hỗ trợ kỹ thuật trong vòng 15 phút làm việc.
+          </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
-          <div className="mb-7"><p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">Gửi tin nhắn</p><h2 className="mt-2 text-2xl font-black">Bạn đang cần hỗ trợ gì?</h2></div>
+        {/* Message Form */}
+        <section className="rounded-3xl border border-white/5 bg-zinc-900 p-8 shadow-2xl">
+          <div className="mb-8">
+            <p className="text-xs font-bold uppercase tracking-widest text-yellow-400">Gửi lời nhắn</p>
+            <h2 className="mt-1 text-2xl font-black text-white">Bạn đang cần chúng tôi hỗ trợ điều gì?</h2>
+          </div>
+
           {sent ? (
-            <div className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl bg-emerald-50 px-6 text-center"><CheckCircle2 className="h-14 w-14 text-emerald-500" /><h3 className="mt-4 text-xl font-extrabold text-slate-900">Cảm ơn bạn đã liên hệ!</h3><p className="mt-2 max-w-sm text-sm leading-6 text-slate-600">Tin nhắn đã được ghi nhận. Đội ngũ Golden State sẽ phản hồi bạn sớm.</p><button onClick={() => setSent(false)} className="mt-6 text-sm font-bold text-blue-600 hover:text-blue-700">Gửi tin nhắn khác</button></div>
+            <div className="flex min-h-[350px] flex-col items-center justify-center rounded-2xl bg-black border border-white/5 p-8 text-center">
+              <CheckCircle2 className="h-16 w-16 text-yellow-400 mb-4" />
+              <h3 className="text-2xl font-extrabold text-white">Cảm ơn bạn đã liên hệ!</h3>
+              <p className="mt-2 max-w-sm text-sm text-gray-400 leading-relaxed">
+                Tin nhắn của bạn đã được chuyển tới bộ phận chăm sóc khách hàng của GoldenState. Chúng tôi sẽ phản hồi sớm nhất!
+              </p>
+              <button
+                onClick={() => setSent(false)}
+                className="mt-6 btn-outline px-6 py-2.5 rounded-xl text-xs font-bold"
+              >
+                Gửi lời nhắn khác
+              </button>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
-                <label className="block"><span className="mb-2 block text-sm font-bold text-slate-700">Họ tên</span><input required name="name" placeholder="Nguyễn Văn A" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
-                <label className="block"><span className="mb-2 block text-sm font-bold text-slate-700">Email</span><input required type="email" name="email" placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Họ và tên *</label>
+                  <input
+                    required
+                    name="name"
+                    placeholder="Nguyễn Văn A"
+                    className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email liên hệ *</label>
+                  <input
+                    required
+                    type="email"
+                    name="email"
+                    placeholder="you@example.com"
+                    className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
+                  />
+                </div>
               </div>
-              <label className="block"><span className="mb-2 block text-sm font-bold text-slate-700">Số điện thoại</span><input required type="tel" name="phone" placeholder="081 22 88 111" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
-              <label className="block"><span className="mb-2 block text-sm font-bold text-slate-700">Nội dung</span><textarea required name="message" rows={5} placeholder="Hãy chia sẻ điều bạn muốn Golden State hỗ trợ..." className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
-              <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"><Send className="h-4 w-4" /> Gửi liên hệ</button>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Số điện thoại *</label>
+                <input
+                  required
+                  type="tel"
+                  name="phone"
+                  placeholder="081 22 88 111"
+                  className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Nội dung chi tiết *</label>
+                <textarea
+                  required
+                  name="message"
+                  rows={5}
+                  placeholder="Hãy chia sẻ thông tin về yêu cầu hỗ trợ, thắc mắc lịch đặt sân hoặc hợp tác..."
+                  className="w-full resize-none rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-sm font-bold"
+              >
+                <Send className="h-4 w-4" /> Gửi tin nhắn ngay
+              </button>
             </form>
           )}
         </section>
       </main>
-
-      <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid min-h-[300px] lg:grid-cols-[1fr_1.2fr]">
-            <div className="relative overflow-hidden bg-slate-200 p-8">
-              <div className="absolute inset-0 opacity-60" style={{ backgroundImage: "linear-gradient(25deg, transparent 45%, #cbd5e1 46%, #cbd5e1 48%, transparent 49%), linear-gradient(115deg, transparent 44%, #dbeafe 45%, #dbeafe 49%, transparent 50%), linear-gradient(170deg, transparent 60%, #cbd5e1 61%, #cbd5e1 63%, transparent 64%)", backgroundSize: "180px 160px, 220px 190px, 240px 180px" }} />
-              <div className="relative flex h-full min-h-[300px] items-center justify-center"><div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-900/30"><MapPin className="h-9 w-9" /><span className="absolute inset-0 animate-ping rounded-full bg-blue-500/30" /></div><div className="absolute bottom-6 rounded-full bg-white/90 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm">Golden State HQ</div></div>
-            </div>
-            <div className="flex flex-col justify-center p-8 sm:p-12"><p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">Bản đồ</p><h2 className="mt-3 text-2xl font-black">Ghé thăm văn phòng Golden State</h2><p className="mt-4 max-w-lg text-sm leading-7 text-slate-500">Tầng 3, 21 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh. Bản đồ minh họa giúp bạn dễ hình dung vị trí của chúng tôi.</p><Link to="/map" className="mt-6 inline-flex w-fit items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700">Xem bản đồ sân thể thao <MapPin className="h-4 w-4" /></Link></div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Table, Button, Input, Modal, Form, Select, InputNumber, Switch, message, Spin } from "antd";
-import { Ticket, Plus, Search, Percent, DollarSign } from "lucide-react";
+import { Ticket, Plus, Search, Percent, DollarSign, BarChart3, CheckCircle2, Archive } from "lucide-react";
 import { api, formatCurrency } from "../../lib/api";
 
 interface Voucher {
@@ -78,9 +78,7 @@ export default function AdminVouchers() {
             title: "Đã dùng / Giới hạn",
             key: "usage",
             render: (_: any, r: Voucher) => (
-                <span className="font-semibold text-gray-600">
-                    <span className="text-blue-500">{r.used}</span> / {r.limit}
-                </span>
+                <div className="min-w-[130px]"><div className="flex justify-between text-xs font-bold text-gray-400 mb-1"><span>{r.used} lượt dùng</span><span>{r.limit}</span></div><div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full bg-yellow-500" style={{ width: `${Math.min(100, (r.used / Math.max(r.limit, 1)) * 100)}%` }} /></div></div>
             )
         },
         {
@@ -104,22 +102,26 @@ export default function AdminVouchers() {
         <div className="animate-in fade-in duration-500 pb-10">
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 className="text-3xl font-black bg-gradient-to-r from-pink-500 to-rose-500 bg-clip-text text-transparent tracking-tight flex items-center gap-2">
+                    <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><Ticket size={14} /> Campaign studio</div>
+                    <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
                         Quản lý Mã Giảm Giá
                     </h1>
                     <p className="text-gray-500 mt-2 font-medium">Tạo và quản lý các chiến dịch Voucher/Khuyến mãi</p>
                 </div>
-                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 border-0 shadow-lg shadow-pink-500/30 font-bold px-6 flex items-center h-12 rounded-2xl transition-all hover:scale-105 hover:-translate-y-0.5">
+                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black border-0 shadow-lg shadow-yellow-500/20 font-bold px-6 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
                     <Plus className="mr-2" size={20} /> Tạo mã mới
                 </Button>
             </div>
 
-            <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                {[{ label: "Tổng mã", value: vouchers.length, icon: Ticket }, { label: "Đang hoạt động", value: vouchers.filter((v) => v.status === "active").length, icon: CheckCircle2 }, { label: "Tổng lượt dùng", value: vouchers.reduce((sum, v) => sum + (v.used || 0), 0), icon: BarChart3 }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+            </div>
+            <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
                 <Input
                     prefix={<Search size={18} className="text-gray-400 mr-2" />}
                     placeholder="Tìm mã code..."
                     size="large"
-                    className="rounded-2xl mb-6 max-w-sm border-gray-200 px-4 py-2 text-sm font-medium focus:ring-4 ring-pink-500/10 transition-all border outline-none"
+                    className="rounded-2xl mb-6 max-w-sm !bg-black !border-white/10 !text-white px-4 py-2 text-sm font-medium focus:ring-4 ring-yellow-500/10 transition-all border outline-none"
                     onChange={e => setSearchText(e.target.value)}
                 />
 
@@ -128,7 +130,8 @@ export default function AdminVouchers() {
                     dataSource={filtered}
                     columns={columns}
                     rowKey="id"
-                    components={{ header: { cell: (props: any) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold uppercase text-xs tracking-wider border-b border-gray-100 py-4" /> } }}
+                    locale={{ emptyText: <div className="py-12 text-center text-gray-500"><Archive className="mx-auto mb-3 text-yellow-500" /><p>Chưa có mã khuyến mãi phù hợp</p></div> }}
+                    components={{ header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold uppercase text-xs tracking-wider !border-b-white/10 py-4" /> } }}
                 />
             </div>
 

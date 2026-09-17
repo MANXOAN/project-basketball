@@ -1,12 +1,7 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
-  Map,
-  BookOpen,
-  LogIn,
-  LogOut,
-  User,
-  Shield,
-  CalendarDays,
+  Map, BookOpen, LogIn, LogOut, User, Shield, CalendarDays, Menu, X, Home,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import toast from "react-hot-toast";
@@ -14,13 +9,15 @@ import toast from "react-hot-toast";
 export default function Header() {
   const { user, loggedIn, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
     navigate("/");
+    setMobileOpen(false);
   };
 
-  /** Nút kiểm tra quyền admin → vào /admin nếu đủ quyền */
   const goAdmin = () => {
     if (!loggedIn) {
       toast.error("Vui lòng đăng nhập trước");
@@ -32,116 +29,196 @@ export default function Header() {
     } else {
       toast.error("Tài khoản của bạn không có quyền Admin");
     }
+    setMobileOpen(false);
   };
 
+  const isActive = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(path + "/");
+
+  const navLinkClass = (path: string) =>
+    `relative flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg transition-all duration-200 ${
+      isActive(path)
+        ? "text-black bg-[var(--color-gold)] hover:bg-[var(--color-yellow)]"
+        : "text-gray-300 hover:text-white hover:bg-white/10"
+    }`;
+
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
-        <div className="flex items-center space-x-8">
-          <Link
-            to="/"
-            className="text-2xl font-extrabold tracking-tight flex items-center"
-          >
-            <span className="text-blue-700 uppercase tracking-widest mr-1">
-              Golden
-            </span>
-            <span className="text-yellow-500 uppercase tracking-widest">
-              State
-            </span>
+    <header className="sticky top-0 z-50 shadow-lg"
+      style={{ background: `linear-gradient(135deg, var(--color-primary) 0%, var(--color-gold) 100%)` }}
+    >
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="h-16 flex items-center justify-between">
+
+          {/* Logo */}
+          <Link to="/" className="flex items-center gap-2.5 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center text-xl shadow-inner">
+              ⚽
+            </div>
+            <div className="leading-none">
+              <div className="text-white font-extrabold text-lg tracking-tight">
+                Golden<span className="text-yellow-400">State</span>
+              </div>
+              <div className="text-blue-200 text-[10px] font-medium tracking-wider uppercase">
+                Sports Booking
+              </div>
+            </div>
           </Link>
 
-          <nav className="hidden lg:flex items-center space-x-5 text-sm font-medium text-gray-700">
-            <Link
-              to="/fields"
-              className="flex items-center hover:text-blue-600 transition-colors"
-            >
-              Danh Sách
+          {/* Desktop Nav */}
+          <nav className="hidden lg:flex items-center gap-1">
+            <Link to="/" className={navLinkClass("/home")}>
+              <Home className="w-4 h-4" /> Trang chủ
             </Link>
-            <Link
-              to="/map"
-              className="flex items-center hover:text-blue-600 transition-colors"
-            >
-              <Map className="w-4 h-4 mr-1.5" />
-              Bản đồ
+            <Link to="/fields" className={navLinkClass("/fields")}>
+              ⚽ Tìm sân
             </Link>
-            <Link
-              to="/blog"
-              className="flex items-center hover:text-blue-600 transition-colors"
-            >
-              <BookOpen className="w-4 h-4 mr-1.5" />
-              Blog
+            <Link to="/map" className={navLinkClass("/map")}>
+              <Map className="w-4 h-4" /> Bản đồ
+            </Link>
+            <Link to="/blog" className={navLinkClass("/blog")}>
+              <BookOpen className="w-4 h-4" /> Blog
             </Link>
           </nav>
-        </div>
 
-        <div className="flex items-center space-x-2 sm:space-x-3">
-          {loggedIn ? (
-            <>
-              <Link
-                to="/my-bookings"
-                className="hidden sm:flex items-center text-sm font-medium text-gray-700 hover:text-blue-600"
-              >
-                <CalendarDays className="w-4 h-4 mr-1.5" />
-                Đơn của tôi
-              </Link>
+          {/* Right actions */}
+          <div className="hidden lg:flex items-center gap-2">
+            {loggedIn ? (
+              <>
+                <Link
+                  to="/my-bookings"
+                  className="flex items-center gap-1.5 text-sm font-semibold text-blue-100 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                  Đơn của tôi
+                </Link>
 
-              {/* Nút Admin: luôn hiện khi đã login; chỉ vào được nếu có quyền */}
-              <button
-                type="button"
-                onClick={goAdmin}
-                className={`flex items-center text-sm font-semibold px-3 py-1.5 rounded-lg transition ${
-                  isAdmin
-                    ? "text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200"
-                    : "text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-                }`}
-                title={isAdmin ? "Vào trang quản trị" : "Kiểm tra quyền Admin"}
-              >
-                <Shield className="w-4 h-4 mr-1.5" />
-                <span className="hidden sm:inline">
-                  {isAdmin ? "Trang Admin" : "Admin"}
-                </span>
-              </button>
+                {isAdmin && (
+                  <button
+                    onClick={goAdmin}
+                    className="flex items-center gap-1.5 text-sm font-semibold bg-yellow-400/20 hover:bg-yellow-400/30 text-yellow-300 border border-yellow-400/30 px-3 py-2 rounded-lg transition-all"
+                  >
+                    <Shield className="w-4 h-4" /> Admin
+                  </button>
+                )}
 
-              <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700 max-w-[100px] truncate">
                 <Link
                   to="/profile"
-                  className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
-                  title="Tài khoản"
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-all"
                 >
-                  <User className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="hidden md:inline truncate">
-                    {user?.fullName || user?.email}
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 to-orange-400 flex items-center justify-center text-xs font-extrabold text-white shadow">
+                    {(user?.fullName || user?.email || "U")[0].toUpperCase()}
+                  </div>
+                  <span className="text-sm font-semibold text-white max-w-[90px] truncate">
+                    {user?.fullName?.split(" ").pop() || "Tôi"}
                   </span>
-                  <span className="hidden sm:inline">Tài khoản</span>
                 </Link>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex items-center text-sm font-medium text-red-600 hover:text-red-700 px-2 py-1.5"
-              >
-                <LogOut className="w-4 h-4 mr-1" />
-                <span className="hidden sm:inline">Đăng xuất</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <Link
-                to="/login"
-                className="text-sm font-medium text-gray-700 flex items-center hover:text-blue-600 transition-colors"
-              >
-                <LogIn className="w-4 h-4 mr-1.5" />
-                Đăng nhập
-              </Link>
-              <Link
-                to="/register"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors"
-              >
-                Đăng ký
-              </Link>
-            </>
-          )}
+
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 text-sm font-semibold text-red-300 hover:text-red-200 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-all"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="flex items-center gap-1.5 text-sm font-semibold text-blue-100 hover:text-white hover:bg-white/10 px-4 py-2 rounded-lg transition-all"
+                >
+                  <LogIn className="w-4 h-4" /> Đăng nhập
+                </Link>
+                <Link
+                  to="/register"
+                  className="flex items-center gap-1.5 text-sm font-bold bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 text-white px-4 py-2 rounded-lg shadow-lg transition-all"
+                >
+                  Đăng ký miễn phí
+                </Link>
+              </>
+            )}
+          </div>
+
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="lg:hidden p-2 rounded-lg text-white hover:bg-white/10 transition-all"
+          >
+            {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
         </div>
+
+        {/* Mobile menu */}
+        {mobileOpen && (
+          <div className="lg:hidden border-t border-white/10 py-3 space-y-1 animate-fade-in-up">
+            {[
+              { to: "/", label: "Trang chủ", icon: "🏠" },
+              { to: "/fields", label: "Tìm sân", icon: "⚽" },
+              { to: "/map", label: "Bản đồ", icon: "🗺️" },
+              { to: "/blog", label: "Blog", icon: "📖" },
+            ].map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 text-sm font-semibold text-blue-100 hover:text-white hover:bg-white/10 px-3 py-3 rounded-lg transition-all"
+              >
+                <span>{item.icon}</span> {item.label}
+              </Link>
+            ))}
+
+            <div className="border-t border-white/10 pt-3 space-y-1">
+              {loggedIn ? (
+                <>
+                  <Link
+                    to="/my-bookings"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-3 text-sm font-semibold text-blue-100 hover:text-white hover:bg-white/10 px-3 py-3 rounded-lg transition-all"
+                  >
+                    <CalendarDays className="w-4 h-4" /> Đơn của tôi
+                  </Link>
+                  <Link
+                    to="/profile"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-3 text-sm font-semibold text-blue-100 hover:text-white hover:bg-white/10 px-3 py-3 rounded-lg transition-all"
+                  >
+                    <User className="w-4 h-4" /> {user?.fullName || "Tài khoản"}
+                  </Link>
+                  {isAdmin && (
+                    <button
+                      onClick={goAdmin}
+                      className="w-full flex items-center gap-3 text-sm font-semibold text-yellow-300 hover:bg-white/10 px-3 py-3 rounded-lg transition-all"
+                    >
+                      <Shield className="w-4 h-4" /> Trang Admin
+                    </button>
+                  )}
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 text-sm font-semibold text-red-300 hover:bg-white/10 px-3 py-3 rounded-lg transition-all"
+                  >
+                    <LogOut className="w-4 h-4" /> Đăng xuất
+                  </button>
+                </>
+              ) : (
+                <div className="flex gap-2 px-3">
+                  <Link
+                    to="/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex-1 text-center text-sm font-semibold text-white border border-white/30 py-2.5 rounded-lg hover:bg-white/10 transition-all"
+                  >
+                    Đăng nhập
+                  </Link>
+                  <Link
+                    to="/register"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex-1 text-center text-sm font-bold bg-green-500 hover:bg-green-400 text-white py-2.5 rounded-lg transition-all"
+                  >
+                    Đăng ký
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );

@@ -1,5 +1,5 @@
 import { Table, Button, Space, Popconfirm, message, Modal, Form, Input, InputNumber, Select, Spin, Tag } from "antd";
-import { CopyPlus, Edit, Trash2, MapPin, Activity, CheckCircle2 } from "lucide-react";
+import { CopyPlus, Edit, Trash2, MapPin, Activity, CheckCircle2, Layers3, Wrench } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { formatCurrency } from "../../lib/api";
@@ -108,7 +108,7 @@ export default function Courts() {
                     </div>
                     <div>
                         <div className="font-bold text-gray-800 text-base">{text}</div>
-                        <div className="text-xs text-gray-400">ID: {Math.floor(Math.random() * 10000)}</div>
+                        <div className="text-xs text-gray-500">ID: {text ? "Đang vận hành" : "Chưa đặt tên"}</div>
                     </div>
                 </div>
             )
@@ -158,20 +158,24 @@ export default function Courts() {
         <div className="animate-in fade-in duration-500">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
                 <div>
-                    <h1 className="text-3xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">Quản lý Sân Bóng</h1>
+                        <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><Layers3 size={14} /> Venue operations</div>
+                        <h1 className="text-3xl font-black text-white tracking-tight">Quản lý Sân Bóng</h1>
                     <p className="text-gray-500 mt-2 font-medium">Thêm, sửa, xoá và cập nhật trạng thái các sân bóng</p>
                 </div>
                 <Button
                     type="primary"
                     size="large"
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 text-white font-bold rounded-2xl h-12 px-6 flex items-center transition-all hover:scale-105 border-0 gap-2"
+                    className="!bg-yellow-500 hover:!bg-yellow-400 shadow-lg shadow-yellow-500/20 !text-black font-bold rounded-2xl h-12 px-6 flex items-center transition-all hover:scale-105 !border-0 gap-2"
                     onClick={() => handleOpenModal()}
                 >
                     <CopyPlus size={20} /> Tạo sân mới
                 </Button>
             </div>
 
-            <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                {[{ label: "Tổng số sân", value: data.length, icon: MapPin }, { label: "Đang hoạt động", value: data.filter((c) => c.status === "active").length, icon: CheckCircle2 }, { label: "Đang bảo trì", value: data.filter((c) => c.status !== "active").length, icon: Wrench }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+            </div>
+            <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
                 <Table
                     className="modern-table"
                     dataSource={data}
@@ -179,7 +183,7 @@ export default function Courts() {
                     rowKey="id"
                     pagination={{ pageSize: 10, className: "mt-6" }}
                     components={{
-                        header: { cell: (props: any) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100 py-4 uppercase text-xs tracking-wider" /> }
+                        header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold !border-b-white/10 py-4 uppercase text-xs tracking-wider" /> }
                     }}
                 />
             </div>
