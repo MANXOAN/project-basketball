@@ -22,10 +22,6 @@ export function getUser(): AuthUser | null {
 }
 
 export function setAuth(token: string, user: AuthUser) {
-  // Normalize admin role
-  if (user.email === "admin@gmail.com") {
-    user = { ...user, role: "admin" };
-  }
   localStorage.setItem("token", token);
   localStorage.setItem("user", JSON.stringify(user));
   window.dispatchEvent(new Event("auth-change"));
@@ -40,7 +36,7 @@ export function clearAuth() {
 export function isAdmin(user?: AuthUser | null): boolean {
   const u = user === undefined ? getUser() : user;
   if (!u) return false;
-  return u.role === "admin" || u.email === "admin@gmail.com";
+  return u.role === "admin";
 }
 
 export function isLoggedIn(): boolean {

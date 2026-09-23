@@ -5,8 +5,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
-
-const API_URL = "http://localhost:3000";
+import { api } from "../lib/api";
 
 function Register() {
   const navigate = useNavigate();
@@ -25,7 +24,7 @@ function Register() {
     }
 
     try {
-      await axios.post(`${API_URL}/register`, {
+      await api.post("/register", {
         email: values.email,
         password: values.password,
         fullName: values.fullName,
@@ -64,7 +63,7 @@ function Register() {
               <div className="text-white font-extrabold text-2xl">
                 Golden<span className="text-yellow-400">State</span>
               </div>
-              <div className="text-gray-400 text-xs tracking-widest uppercase">Sports Booking</div>
+              <div className="text-gray-400 text-xs tracking-widest uppercase">Basketball Booking</div>
             </div>
           </Link>
 
@@ -93,7 +92,7 @@ function Register() {
         </div>
 
         <p className="relative z-10 text-gray-500 text-xs">
-          © 2026 GoldenState Sports · All rights reserved
+          © 2026 GoldenState Basketball · All rights reserved
         </p>
       </div>
 

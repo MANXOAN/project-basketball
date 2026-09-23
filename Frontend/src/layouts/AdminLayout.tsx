@@ -1,11 +1,14 @@
 import { Layout, Menu, Avatar, Dropdown } from 'antd';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, CalendarDays, ClipboardList, MapPin, LogOut, Bell, Settings, User, Ticket, Shield, Sparkles } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, CalendarDays, ClipboardList, MapPin, LogOut, Bell, Settings, User, Ticket, Shield, Trophy } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const { Header, Sider, Content } = Layout;
 
 export default function AdminLayout() {
     const location = useLocation();
+    const navigate = useNavigate();
+    const { logout } = useAuth();
 
     const menuItems = [
         {
@@ -58,7 +61,7 @@ export default function AdminLayout() {
         {
             key: "logout",
             danger: true,
-            label: <Link to="/" className="flex items-center gap-2 text-xs"><LogOut size={14} /> Đăng xuất</Link>,
+            label: <button type="button" onClick={() => { logout(); navigate('/'); }} className="flex items-center gap-2 text-xs"><LogOut size={14} /> Đăng xuất</button>,
         },
     ];
 
@@ -77,7 +80,7 @@ export default function AdminLayout() {
                 <div className="h-20 flex items-center px-6 mt-2 border-b border-white/5">
                     <Link to="/" className="flex items-center gap-3 group">
                         <div className="w-10 h-10 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl flex justify-center items-center text-xl group-hover:scale-105 transition-transform">
-                            🏀
+                            <Trophy className="h-5 w-5 text-yellow-400" />
                         </div>
                         <div>
                             <span className="text-white font-extrabold tracking-tight text-lg">

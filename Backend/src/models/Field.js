@@ -4,8 +4,8 @@ const fieldSchema = new mongoose.Schema(
   {
     id: { type: Number, unique: true, required: true },
     name: { type: String, required: true, trim: true },
-    sport: { type: String, default: "pickleball" },
-    sportLabel: { type: String, default: "Pickleball" },
+    sport: { type: String, enum: ["basketball"], default: "basketball" },
+    sportLabel: { type: String, enum: ["Bóng rổ"], default: "Bóng rổ" },
     address: { type: String, default: "" },
     city: { type: String, default: "" },
     phone: { type: String, default: "" },

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Col, Row, Spin, Table } from "antd";
-import { DollarSign, CalendarCheck, Users, TrendingUp, Sparkles, Activity, ShieldCheck } from "lucide-react";
+import { DollarSign, CalendarCheck, Users, TrendingUp, Sparkles, Activity } from "lucide-react";
 import { api, Booking, Court, Field, formatCurrency } from "../../lib/api";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -76,8 +76,11 @@ export default function Dashboard() {
       };
     }).sort((a, b) => b.revenue - a.revenue);
 
+    const demoRevenue = [320000, 480000, 270000, 620000, 510000, 740000, 860000];
+    const demoBookings = [2, 3, 2, 4, 3, 5, 6];
     const chartData = [];
     for (let i = 6; i >= 0; i--) {
+      const demoIndex = 6 - i;
       const d = daysAgo(i);
       const dateStr = d.toISOString().split('T')[0];
       const dayBookings = active.filter(b => b.date === dateStr);
@@ -85,12 +88,12 @@ export default function Dashboard() {
         .filter((b) => b.paymentStatus === "paid" || b.status === "confirmed" || b.status === "completed")
         .reduce((s, b) => s + (b.total || 0), 0);
 
-      if (dayRev === 0) dayRev = Math.floor(Math.random() * 500000) + 100000;
+      if (dayRev === 0) dayRev = demoRevenue[demoIndex];
 
       chartData.push({
         date: dateStr.split('-').slice(1).join('/'),
         revenue: dayRev,
-        bookings: dayBookings.length > 0 ? dayBookings.length : Math.floor(Math.random() * 5) + 1
+        bookings: dayBookings.length > 0 ? dayBookings.length : demoBookings[demoIndex]
       });
     }
 
@@ -102,7 +105,7 @@ export default function Dashboard() {
       fillRate: fillRate === 0 ? 76.5 : fillRate,
       byField: byField.length === 0 ? [
         { id: 1, name: "Sân Bóng Rổ GoldenState Q1", bookings: 18, revenue: 6400000 },
-        { id: 2, name: "Trung Tâm Thể Thao Hoop Arena", bookings: 12, revenue: 4200000 },
+        { id: 2, name: "Trung tâm Bóng rổ Hoop Arena", bookings: 12, revenue: 4200000 },
         { id: 3, name: "Sân Đấu Tiêu Chuẩn Thảo Điền", bookings: 8, revenue: 2900000 },
       ] : byField,
       chartData,

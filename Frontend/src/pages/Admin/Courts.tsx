@@ -1,29 +1,21 @@
 import { Table, Button, Space, Popconfirm, message, Modal, Form, Input, InputNumber, Select, Spin, Tag } from "antd";
 import { CopyPlus, Edit, Trash2, MapPin, Activity, CheckCircle2, Layers3, Wrench } from "lucide-react";
 import { useState, useEffect } from "react";
-import axios from "axios";
-import { formatCurrency } from "../../lib/api";
+import { api, type Court as ApiCourt, type Field, formatCurrency } from "../../lib/api";
 
-const API_URL = "http://localhost:3000";
-
-interface Court {
-    id: number;
-    name: string;
-    type: string;
-    price: number;
-    status: string;
-}
+type Court = ApiCourt;
 
 export default function Courts() {
     const [data, setData] = useState<Court[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCourt, setEditingCourt] = useState<Court | null>(null);
+    const [fields, setFields] = useState<Field[]>([]);
     const [form] = Form.useForm();
 
     const fetchCourts = async () => {
         try {
-            const res2 = await axios.get("http://localhost:3000/api/courts");
+            const res2 = await api.get<Court[]>("/courts");
             setData(res2.data);
         } catch (error) {
             message.error("Không thể tải dữ liệu sân.");
@@ -34,11 +26,12 @@ export default function Courts() {
 
     useEffect(() => {
         fetchCourts();
+        api.get<Field[]>("/fields").then((res) => setFields(res.data)).catch(() => message.error("Không thể tải danh sách cơ sở."));
     }, []);
 
     const handleDelete = async (id: number) => {
         try {
-            await axios.delete(`http://localhost:3000/api/courts/${id}`);
+            await api.delete(`/courts/${id}`);
             await fetchCourts();
             setData(data.filter(item => item.id !== id));
             message.success("Xoá sân thành công");
@@ -54,7 +47,7 @@ export default function Courts() {
         } else {
             setEditingCourt(null);
             form.resetFields();
-            form.setFieldsValue({ status: "active", 'Loại Sân': "Sân Bóng Rổ 5x5" });
+            form.setFieldsValue({ status: "active", type: "Bóng rổ 5x5", capacity: 10, fieldId: fields[0]?.id });
         }
         setIsModalOpen(true);
     };
@@ -76,17 +69,17 @@ export default function Courts() {
             const payload = {
                 ...values,
                 price: Number(values.price) || 0,
-                type: values['Loại Sân'] || values.type,
-                // Nếu backend bắt buộc có fieldId dạng số, gán giá trị mặc định (ví dụ: 1) hoặc lấy từ fieldId
-                fieldId: values.fieldId ? Number(values.fieldId) : 1 
+                type: values.type,
+                fieldId: Number(values.fieldId),
+                capacity: Number(values.capacity) || 10,
             };
     
             if (editingCourt) {
-                const res = await axios.put(`${API_URL}/api/courts/${editingCourt.id}`, payload);
+                const res = await api.put(`/courts/${editingCourt.id}`, payload);
                 setData(data.map(item => item.id === editingCourt.id ? res.data : item));
                 message.success("Cập nhật sân thành công!");
             } else {
-                const res = await axios.post(`${API_URL}/api/courts`, payload);
+                const res = await api.post(`/courts`, payload);
                 setData([...data, res.data]);
                 message.success("Thêm sân mới thành công!");
             }
@@ -201,10 +194,14 @@ export default function Courts() {
                         <Input placeholder="VD: Sân Bóng Rổ số 1..." size="large" className="rounded-xl" />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Loại Sân</span>} name="Loại Sân" rules={[{ required: true }]}>
+                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Cơ sở</span>} name="fieldId" rules={[{ required: true, message: "Chọn cơ sở" }]}>
+                        <Select size="large" className="rounded-xl" placeholder="Chọn cơ sở" options={fields.map((field) => ({ value: field.id, label: field.name }))} />
+                    </Form.Item>
+
+                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Loại Sân</span>} name="type" rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl" options={[
-                            { value: 'Sân Bóng Rổ 5x5', label: 'Sân Bóng Rổ 5x5 - Tiêu chuẩn' },
-                            { value: 'Sân Bóng Rổ 3x3', label: 'Sân Bóng Rổ 3x3 - Nửa sân' },
+                            { value: 'Bóng rổ 5x5', label: 'Sân Bóng Rổ 5x5 - Tiêu chuẩn' },
+                            { value: 'Bóng rổ 3x3', label: 'Sân Bóng Rổ 3x3 - Nửa sân' },
                         ]} />
                     </Form.Item>
 
@@ -217,6 +214,10 @@ export default function Courts() {
                             { value: 'active', label: 'Đang hoạt động (Trống)' },
                             { value: 'maintenance', label: 'Bảo trì (Tạm khoá)' },
                         ]} />
+                    </Form.Item>
+
+                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Sức chứa</span>} name="capacity" rules={[{ required: true, message: "Nhập sức chứa" }]}>
+                        <InputNumber size="large" min={1} className="w-full rounded-xl" />
                     </Form.Item>
 
                     <div className="flex gap-3 mt-8">

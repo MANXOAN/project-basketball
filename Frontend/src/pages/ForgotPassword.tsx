@@ -1,5 +1,5 @@
 import { Form, Input, Button } from "antd";
-import { ArrowLeft, KeyRound, Mail, Sparkles } from "lucide-react";
+import { ArrowLeft, KeyRound, Mail } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { api } from "../lib/api";

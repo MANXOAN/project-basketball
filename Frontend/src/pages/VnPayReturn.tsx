@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "react-router-dom";
-import { CheckCircle2, XCircle, Loader2, ArrowRight, CalendarDays, ShieldCheck } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { api } from "../lib/api";
 
 export default function VnPayReturn() {

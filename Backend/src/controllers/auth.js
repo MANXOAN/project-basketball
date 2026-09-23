@@ -21,7 +21,7 @@ function signToken(user) {
 /** POST /register — giống json-server-auth */
 export async function register(req, res) {
   try {
-    const { email, password, fullName, phone, role } = req.body;
+    const { email, password, fullName, phone } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: "Email và mật khẩu bắt buộc" });
     }
@@ -37,7 +37,9 @@ export async function register(req, res) {
       password: hash,
       fullName: fullName || "",
       phone: phone || "",
-      role: role === "admin" ? "admin" : "user",
+      // Public registration may only create a customer account. Admin roles
+      // must be assigned by an authenticated administrator in a separate flow.
+      role: "user",
     });
     const accessToken = signToken(user);
     return res.status(201).json({

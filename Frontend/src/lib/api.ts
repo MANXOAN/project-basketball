@@ -1,8 +1,12 @@
 import axios from "axios";
 import { cachedGet, invalidateApiCache } from "./apiCache";
+import { demoCourts, demoFields } from "../data/demoData";
 
 // src/lib/api.ts
-export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+// Dùng API cùng origin. Trong dev, Vite proxy chuyển /api về backend duy nhất;
+// vì vậy máy khác mở frontend qua IP LAN cũng dùng cùng database, không gọi
+// localhost của chính máy đó.
+export const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -65,6 +69,15 @@ export type Court = {
   capacity: number;
 };
 
+const basketballLabels = new Set(["basketball", "bóng rổ", "sân bóng rổ"]);
+
+function isBasketballField(field: Field) {
+  const sport = String(field.sport || field.sportLabel || field.type || "")
+    .trim()
+    .toLocaleLowerCase("vi-VN");
+  return basketballLabels.has(sport);
+}
+
 export type Booking = {
   id: number;
   fieldId: number;
@@ -84,6 +97,13 @@ export type Booking = {
   };
   paymentMethod: string;
   paymentStatus: string;
+  paidAmount?: number;
+  paymentExpiresAt?: string | null;
+  refundAmount?: number;
+  refundStatus?: "none" | "pending" | "completed";
+  refundStk?: string;
+  refundBank?: string;
+  cancellationReason?: string;
   status: string;
   createdAt: string;
 };
@@ -106,16 +126,18 @@ export function isSlotConflict(
   return a0 < b1 && b0 < a1;
 }
 
-export async function getBookedSlots(courtId: number, date: string) {
+export async function getBookedSlots(courtId: number, date: string, force = false) {
   // Dùng 1 request theo ngày (cache) rồi lọc court — tránh N request cho N sân
-  const list = await getBookingsByDate(date);
+  const list = await getBookingsByDate(date, force);
   return list.filter((b) => b.courtId === courtId && b.status !== "cancelled");
 }
 
 /** Lấy bookings theo ngày — cache 15s, gộp request trùng */
-export async function getBookingsByDate(date: string) {
+export async function getBookingsByDate(date: string, force = false) {
+  const key = `bookings:date:${date}`;
+  if (force) invalidateApiCache(key);
   return cachedGet(
-    `bookings:date:${date}`,
+    key,
     async () => {
       const res = await api.get<Booking[]>("/bookings", { params: { date } });
       return res.data;
@@ -129,8 +151,14 @@ export async function fetchFields(force = false) {
   return cachedGet(
     "fields:all",
     async () => {
-      const res = await api.get<Field[]>("/fields");
-      return res.data;
+      try {
+        const res = await api.get<Field[]>("/fields");
+        const basketballFields = res.data.filter(isBasketballField);
+        if (!basketballFields.length) return demoFields;
+        return [...basketballFields, ...demoFields.filter((demo) => !basketballFields.some((field) => field.id === demo.id))];
+      } catch {
+        return demoFields;
+      }
     },
     30_000
   );
@@ -142,8 +170,13 @@ export async function fetchCourts(params?: { fieldId?: number | string; status?:
   return cachedGet(
     key,
     async () => {
-      const res = await api.get<Court[]>("/courts", { params });
-      return res.data;
+      const fallback = params?.fieldId == null ? demoCourts : demoCourts.filter((court) => court.fieldId === Number(params.fieldId));
+      try {
+        const res = await api.get<Court[]>("/courts", { params });
+        return res.data.length ? res.data : fallback;
+      } catch {
+        return fallback;
+      }
     },
     30_000
   );

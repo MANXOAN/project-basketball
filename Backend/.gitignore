@@ -1,1 +1,6 @@
 node_modules
+.env
+db_datn_su26*/
+.mongodb-data/
+.mongodb.log
+backups/

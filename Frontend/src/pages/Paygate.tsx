@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
-import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Clock, ShieldCheck, Copy, Sparkles } from "lucide-react";
+import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Clock, ShieldCheck, Copy } from "lucide-react";
 import { formatCurrency, api } from "../lib/api";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -11,12 +11,15 @@ export default function Paygate() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<"card" | "transfer">("card");
 
-  // State thời gian đếm ngược: 15 phút = 900 giây
-  const [timeLeft, setTimeLeft] = useState(15 * 60);
-
   const payload = location.state?.payload;
+  const existingBooking = location.state?.booking;
+  const balanceBooking = location.state?.balanceBooking;
   const deposit = location.state?.deposit;
   const total = location.state?.total;
+  const paymentDeadline = existingBooking?.paymentExpiresAt || null;
+  const [timeLeft, setTimeLeft] = useState(() => paymentDeadline
+    ? Math.max(0, Math.ceil((new Date(paymentDeadline).getTime() - Date.now()) / 1000))
+    : 15 * 60);
 
   // Đếm ngược mỗi giây
   useEffect(() => {
@@ -28,6 +31,12 @@ export default function Paygate() {
     return () => clearInterval(timer);
   }, [timeLeft]);
 
+  useEffect(() => {
+    if (timeLeft === 0 && existingBooking?.id) {
+      api.get(`/bookings/${existingBooking.id}`).catch(() => undefined);
+    }
+  }, [timeLeft, existingBooking?.id]);
+
   // Format số giây sang kiểu MM:SS
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -35,7 +44,7 @@ export default function Paygate() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  if (!payload) {
+  if (!payload && !existingBooking && !balanceBooking) {
     return (
       <div className="min-h-screen bg-black text-gray-300 flex flex-col items-center justify-center py-20 px-4">
         <div className="bg-zinc-900 border border-white/10 rounded-3xl p-8 max-w-md text-center shadow-2xl">
@@ -50,21 +59,32 @@ export default function Paygate() {
     );
   }
 
-  const amountToPay = payload.paymentMethod === "deposit" ? deposit : total;
+  const isBalancePayment = Boolean(balanceBooking);
+  const booking = balanceBooking || existingBooking || payload;
+  const amountToPay = isBalancePayment
+    ? Math.max(0, Number(balanceBooking.total) - Number(balanceBooking.paidAmount || Math.round(balanceBooking.total * 0.3)))
+    : booking.paymentMethod === "deposit" ? (existingBooking ? Math.round(Number(booking.total) * 0.3) : deposit) : (existingBooking ? Number(booking.total) : total);
+  const paymentKind = isBalancePayment ? "balance" : booking.paymentMethod === "deposit" ? "deposit" : "full";
 
-  const handleConfirmPayment = async (isAuto = false) => {
+  const handleConfirmPayment = async () => {
+    if (timeLeft <= 0 && !isBalancePayment) {
+      toast.error("Đơn đã hết hạn thanh toán. Vui lòng tạo đơn mới.");
+      return;
+    }
     if (tab === "card" && (!Number.isInteger(Number(amountToPay)) || Number(amountToPay) <= 0)) {
       toast.error("Số tiền thanh toán không hợp lệ");
       return;
     }
     setLoading(true);
     try {
-      const res = await api.post("/bookings", payload);
+      // Booking thường đã được tạo từ trang Đặt sân; không tạo lần hai ở đây.
+      const res = (isBalancePayment || existingBooking) ? { data: booking } : await api.post("/bookings", payload);
 
       if (tab === "card") {
         const vnpayRes = await api.post("/vnpay/create-url", {
           amount: Number(amountToPay),
           orderId: String(res.data.id),
+          paymentKind,
           language: "vn",
         });
         if (!vnpayRes.data?.paymentUrl) {
@@ -74,13 +94,15 @@ export default function Paygate() {
         return;
       }
 
-      toast.success(isAuto && tab === "transfer" ? "Chuyển khoản thành công!" : "Thanh toán & Đặt sân thành công!");
+      // VietQR không có webhook trong dự án hiện tại, vì vậy không được tự ghi
+      // nhận là đã thanh toán. Đơn vẫn giữ trạng thái unpaid để khách trả tiếp.
+      toast("Đơn đang chờ xác thực chuyển khoản.", { icon: "⏳" });
       navigate("/my-bookings", {
         state: {
           successId: res.data.id,
-          paymentMethod: payload.paymentMethod,
-          payload,
-          isAutoTransfer: isAuto && tab === "transfer",
+          paymentMethod: isBalancePayment ? "balance" : booking.paymentMethod,
+          payload: booking,
+          isAutoTransfer: false,
         },
       });
     } catch (error: unknown) {
@@ -98,7 +120,7 @@ export default function Paygate() {
   const BANK_ID = "MB";
   const ACCOUNT_NO = "5510355155442";
   const ACCOUNT_NAME = "NGUYEN THANH TU";
-  const addInfo = `DATSAN ${payload.customer?.phone || ""}`;
+  const addInfo = `DATSAN BK${booking.id || booking.customer?.phone || ""}`;
   const vietQrUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-compact2.png?amount=${amountToPay}&addInfo=${encodeURIComponent(
     addInfo
   )}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
@@ -128,12 +150,12 @@ export default function Paygate() {
 
             <h2 className="text-2xl font-black text-white mb-2">Xác Nhận Thanh Toán</h2>
             <p className="text-gray-400 text-sm">
-              Sân đấu: <span className="text-white font-bold">{payload.fieldName} - {payload.court}</span>
+              Sân đấu: <span className="text-white font-bold">{booking.fieldName} - {booking.court}</span>
             </p>
 
             <div className="mt-6 bg-black/60 border border-white/10 p-4 rounded-2xl inline-flex flex-col items-center">
               <span className="text-xs uppercase font-bold text-gray-400 tracking-wider mb-1">
-                {payload.paymentMethod === "deposit" ? "Số tiền cọc giữ chỗ (30%)" : "Tổng tiền thanh toán 100%"}
+                {isBalancePayment ? "Thanh toán phần còn lại (70%)" : booking.paymentMethod === "deposit" ? "Số tiền cọc giữ chỗ (30%)" : "Tổng tiền thanh toán 100%"}
               </span>
               <span className="text-3xl font-black text-yellow-400">
                 {formatCurrency(amountToPay)}
@@ -222,16 +244,24 @@ export default function Paygate() {
                 <div className="text-center">
                   <div className="w-60 h-60 mx-auto bg-white p-3 rounded-2xl shadow-xl border-4 border-yellow-500/30 flex items-center justify-center relative group">
                     <img
-                      onClick={() => handleConfirmPayment(true)}
                       src={vietQrUrl}
                       alt="VietQR Chuyển khoản"
-                      className="w-full h-full object-contain cursor-pointer transition-transform group-hover:scale-98"
-                      title="Nhấn vào mã QR sau khi chuyển khoản để xác nhận giả lập thanh toán"
+                      className="w-full h-full object-contain"
                     />
                   </div>
-                  <p className="text-xs text-yellow-400/80 font-medium mt-3">
-                    💡 Mẹo: Mở app ngân hàng để quét mã QR. <b>Nhấp trực tiếp vào mã QR</b> để mô phỏng hoàn tất!
+                  <p className="text-xs text-gray-400 font-medium mt-3">
+                    Mở ứng dụng ngân hàng, quét đúng mã và giữ nguyên nội dung chuyển khoản.
                   </p>
+                  {import.meta.env.DEV && (
+                    <button
+                      type="button"
+                      onClick={handleConfirmPayment}
+                      disabled={loading}
+                      className="btn-outline mt-4 min-h-11 rounded-xl px-5 text-xs font-bold disabled:opacity-50"
+                    >
+                      {loading ? "Đang tạo đơn demo..." : "Xác nhận giao dịch demo"}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -239,7 +269,7 @@ export default function Paygate() {
             {/* CTA Buttons */}
             {tab === "card" ? (
               <button
-                onClick={() => handleConfirmPayment(false)}
+                onClick={handleConfirmPayment}
                 disabled={loading}
                 className="btn-primary w-full py-4 rounded-xl font-extrabold flex items-center justify-center gap-2 text-base shadow-xl disabled:opacity-50"
               >

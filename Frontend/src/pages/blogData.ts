@@ -40,12 +40,12 @@ export const blogs: BlogPost[] = [
     title: "Xu hướng sân bóng rổ năm 2026",
     category: "Xu hướng",
     image: "https://www.myuc.vn/uploads/products/2023/03/24/3.jpg",
-    desc: "Những xu hướng nổi bật trong ngành thể thao.",
+    desc: "Những xu hướng nổi bật trong vận hành và trải nghiệm sân bóng rổ.",
     date: "29/07/2026",
     content: [
       "Năm 2026, người chơi quan tâm nhiều hơn đến trải nghiệm trọn vẹn thay vì chỉ thuê một khung giờ. Các sân có không gian sạch, dịch vụ rõ ràng và đặt lịch thuận tiện đang tạo được lợi thế lớn.",
       "Đặt sân trên điện thoại, thanh toán không tiền mặt và nhận thông báo tự động dần trở thành tiêu chuẩn quen thuộc của người chơi hiện đại.",
-      "Trong thời gian tới, những cơ sở biết kết hợp cộng đồng thể thao, giải đấu phong trào và dữ liệu vận hành sẽ có nhiều cơ hội phát triển bền vững.",
+      "Trong thời gian tới, những cơ sở biết kết hợp cộng đồng bóng rổ, giải đấu phong trào và dữ liệu vận hành sẽ có nhiều cơ hội phát triển bền vững.",
     ],
   },
 ];

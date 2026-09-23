@@ -1,17 +1,15 @@
 import { Form, Input, Button } from "antd";
 import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import toast from "react-hot-toast";
-
-const API_URL = "http://localhost:3000";
+import { api } from "../lib/api";
 
 function Login() {
   const navigate = useNavigate();
 
   const onFinish = async (values: any) => {
     try {
-      const res = await axios.post(`${API_URL}/login`, {
+      const res = await api.post("/login", {
         email: values.email,
         password: values.password,
       });
@@ -43,7 +41,7 @@ function Login() {
               <div className="text-white font-extrabold text-2xl">
                 Golden<span className="text-yellow-400">State</span>
               </div>
-              <div className="text-gray-400 text-xs tracking-widest uppercase">Sports Booking</div>
+              <div className="text-gray-400 text-xs tracking-widest uppercase">Basketball Booking</div>
             </div>
           </Link>
 
@@ -70,7 +68,7 @@ function Login() {
         </div>
 
         <p className="relative z-10 text-gray-500 text-xs">
-          © 2026 GoldenState Sports · All rights reserved
+          © 2026 GoldenState Basketball · All rights reserved
         </p>
       </div>
 

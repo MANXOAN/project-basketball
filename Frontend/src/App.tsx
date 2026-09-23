@@ -1,40 +1,54 @@
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import Home from "./pages/Home";
-import Detail from "./pages/Detail";
-import Booking from "./pages/Booking";
-import List from "./pages/List";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import Blog from "./pages/Blog";
-import BlogDetail from "./pages/BlogDetail";
-import FieldPage from "./pages/FieldPage";
-import MapPage from "./pages/MapPage";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
-import MyBookings from "./pages/MyBookings";
-import Profile from "./pages/Profile";
-import Paygate from "./pages/Paygate";
-import VnPaySandbox from "./pages/VnPaySandbox"; // 1. Đã thêm import trang giả lập VNPAY
-import AdminLayout from "./layouts/AdminLayout";
-import AdminBookings from "./pages/Admin/AdminBookings";
-import Dashboard from "./pages/Admin/Dashboard";
-import Courts from "./pages/Admin/Courts";
-import CalendarPage from "./pages/Admin/CalendarPage";
-import AdminCustomers from "./pages/Admin/AdminCustomers";
-import AdminVouchers from "./pages/Admin/AdminVouchers";
-import AdminEmployees from "./pages/Admin/AdminEmployees";
+import { lazy, Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import ClientLayout from "./layouts/ClientLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
-import VnPayReturn from "./pages/VnPayReturn";
+
+const Home = lazy(() => import("./pages/Home"));
+const Detail = lazy(() => import("./pages/Detail"));
+const Booking = lazy(() => import("./pages/Booking"));
+const List = lazy(() => import("./pages/List"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const Blog = lazy(() => import("./pages/Blog"));
+const BlogDetail = lazy(() => import("./pages/BlogDetail"));
+const FieldPage = lazy(() => import("./pages/FieldPage"));
+const CommunityHub = lazy(() => import("./pages/CommunityHub"));
+const MapPage = lazy(() => import("./pages/MapPage"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Terms = lazy(() => import("./pages/Terms"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const MyBookings = lazy(() => import("./pages/MyBookings"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Paygate = lazy(() => import("./pages/Paygate"));
+const VnPaySandbox = lazy(() => import("./pages/VnPaySandbox"));
+const VnPayReturn = lazy(() => import("./pages/VnPayReturn"));
+const AdminLayout = lazy(() => import("./layouts/AdminLayout"));
+const AdminBookings = lazy(() => import("./pages/Admin/AdminBookings"));
+const Dashboard = lazy(() => import("./pages/Admin/Dashboard"));
+const Courts = lazy(() => import("./pages/Admin/Courts"));
+const CalendarPage = lazy(() => import("./pages/Admin/CalendarPage"));
+const AdminCustomers = lazy(() => import("./pages/Admin/AdminCustomers"));
+const AdminVouchers = lazy(() => import("./pages/Admin/AdminVouchers"));
+const AdminEmployees = lazy(() => import("./pages/Admin/AdminEmployees"));
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[65vh] flex-col items-center justify-center gap-3 bg-[#f7f8f6] text-slate-500" role="status" aria-live="polite">
+      <Loader2 className="h-9 w-9 animate-spin text-amber-500" />
+      <span className="text-sm font-semibold">Đang chuẩn bị trải nghiệm...</span>
+    </div>
+  );
+}
 
 function App() {
   return (
     <>
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/*" element={<ClientLayout />}>
           <Route index element={<Home />} />
@@ -44,6 +58,9 @@ function App() {
           <Route path="booking" element={<Booking />} />
           <Route path="tim-san" element={<List />} />
           <Route path="fields" element={<FieldPage />} />
+          <Route path="clubs" element={<CommunityHub mode="clubs" />} />
+          <Route path="tournaments" element={<CommunityHub mode="tournaments" />} />
+          <Route path="rankings" element={<CommunityHub mode="rankings" />} />
           <Route path="map" element={<MapPage />} />
           <Route path="ban-do" element={<MapPage />} />
           <Route path="blog" element={<Blog />} />
@@ -98,6 +115,7 @@ function App() {
           <Route path="employees" element={<AdminEmployees />} />
         </Route>
       </Routes>
+      </Suspense>
       <Toaster position="top-right" />
     </>
   );

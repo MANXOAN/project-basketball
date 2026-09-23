@@ -1,14 +1,14 @@
-import React, { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  CalendarDays, Clock, MapPin, User, CheckCircle2, Loader2, Wallet, QrCode, Tag, Banknote, ChevronRight, ShieldCheck, Sparkles, ArrowLeft
+  CalendarDays, Clock, MapPin, CheckCircle2, Loader2, Wallet, QrCode, Tag, ChevronRight, ShieldCheck, Sparkles, ArrowLeft
 } from "lucide-react";
 import {
-  api, Court, Field, formatCurrency, TIME_SLOTS, getBookedSlots, isSlotConflict,
+  api, Court, Field, formatCurrency, getBookedSlots, invalidateApiCache, isSlotConflict,
 } from "../lib/api";
-import { getUser, isLoggedIn } from "../lib/auth";
+import { getUser } from "../lib/auth";
+import { getDemoCourts, getDemoField } from "../data/demoData";
 
 const DURATIONS = [
   { label: "1 giờ", value: 1 },
@@ -16,7 +16,10 @@ const DURATIONS = [
   { label: "2 giờ", value: 2 },
 ];
 
-const CLOSING_TIME = 22; // Sân đóng cửa lúc 22:00
+const getEndTime = (startTime: string, dur: number): number => {
+  const [hours, minutes] = startTime.split(":").map(Number);
+  return hours + minutes / 60 + dur;
+};
 
 export default function Booking() {
   const navigate = useNavigate();
@@ -27,6 +30,7 @@ export default function Booking() {
   const timeParam = params.get("time");
 
   const [loading, setLoading] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
   const [loadingData, setLoadingData] = useState(true);
   const location = useLocation();
   const [success, setSuccess] = useState<null | { code: string; paymentMethod: string; checkinQrUrl?: string }>(null);
@@ -55,17 +59,22 @@ export default function Booking() {
   const [water, setWater] = useState(0);         // Nước lọc
   const [mineralWater, setMineralWater] = useState(0); // Nước muối khoáng
 
-  // Helper tính thời gian kết thúc
-  const getEndTime = (startTime: string, dur: number): number => {
-    const [hours, minutes] = startTime.split(":").map(Number);
-    return hours + minutes / 60 + dur;
-  };
+  const closingTime = Number((field?.closeTime || "22:00").split(":")[0]);
+  const timeSlots = useMemo(() => {
+    const [openHour, openMinute] = (field?.openTime || "06:00").split(":").map(Number);
+    const [closeHour, closeMinute] = (field?.closeTime || "22:00").split(":").map(Number);
+    const slots: string[] = [];
+    for (let minute = openHour * 60 + openMinute; minute < closeHour * 60 + closeMinute; minute += 30) {
+      slots.push(`${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`);
+    }
+    return slots;
+  }, [field?.openTime, field?.closeTime]);
 
-  // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa (22:00) hay không
-  const isDurationValid = (dur: number): boolean => {
+  // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa của cơ sở đã chọn.
+  const isDurationValid = useCallback((dur: number): boolean => {
     if (!time) return true;
-    return getEndTime(time, dur) <= CLOSING_TIME;
-  };
+    return getEndTime(time, dur) <= closingTime;
+  }, [time, closingTime]);
 
   // Tự động điều chỉnh thời lượng về 1 giờ nếu chuyển sang giờ muộn
   useEffect(() => {
@@ -75,13 +84,13 @@ export default function Booking() {
         setDuration(validOption.value);
       }
     }
-  }, [time]);
+  }, [time, duration, isDurationValid]);
 
   const recurringDates = useMemo(() => {
     if (!date) return [];
     const dates = [date];
     if (endDate && endDate >= date) {
-      let current = new Date(date);
+      const current = new Date(date);
       const end = new Date(endDate);
       while (true) {
         current.setDate(current.getDate() + 7);
@@ -113,7 +122,16 @@ export default function Booking() {
           setCourtId(cRes.data[0].id);
         }
       } catch {
-        toast.error("Không tìm thấy cơ sở");
+        const demoField = getDemoField(fieldIdParam);
+        const demoCourts = getDemoCourts(fieldIdParam);
+        if (demoField && demoCourts.length) {
+          setField(demoField);
+          setCourts(demoCourts);
+          if (!courtIdParam) setCourtId(demoCourts[0].id);
+          toast("Đang hiển thị dữ liệu minh hoạ", { id: "demo-data" });
+        } else {
+          toast.error("Không tìm thấy cơ sở");
+        }
       } finally {
         setLoadingData(false);
       }
@@ -122,22 +140,58 @@ export default function Booking() {
 
   const selectedCourt = courts.find((c) => c.id === courtId);
 
-  useEffect(() => {
-    if (!selectedCourt || !date) return;
-    (async () => {
-      try {
-        const slots = await getBookedSlots(selectedCourt.id, date);
-        setBookedSlots(slots);
-      } catch {
-        setBookedSlots([]);
-      }
-    })();
-  }, [selectedCourt?.id, date]);
+  const refreshBookedSlots = useCallback(async (force = false) => {
+    if (!courtId || !date) return;
+    try {
+      const slots = await getBookedSlots(courtId, date, force);
+      setBookedSlots(slots);
+    } catch {
+      // Giữ nguyên dữ liệu hiện có khi mạng lỗi để không vô tình mở lại ca đã giữ.
+    }
+  }, [courtId, date]);
 
+  useEffect(() => {
+    refreshBookedSlots();
+  }, [refreshBookedSlots]);
+
+  // Khi khách quay lại từ Paygate hoặc có người khác vừa tạo đơn, lấy dữ liệu
+  // mới từ API thay vì đợi người dùng F5 trang.
+  useEffect(() => {
+    if (!courtId || !date) return;
+    const refresh = () => refreshBookedSlots(true);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("booking:created", refresh);
+    const interval = window.setInterval(refresh, 10_000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("booking:created", refresh);
+      window.clearInterval(interval);
+    };
+  }, [courtId, date, refreshBookedSlots]);
+
+  // Chỉ làm mờ các mốc thực sự nằm trong ca đã giữ. Ví dụ ca 16:00–18:00
+  // làm mờ 16:00, 16:30, 17:00, 17:30; 15:30 vẫn hiện để báo va chạm rõ ràng
+  // nếu người dùng chọn thời lượng kéo sang ca đã giữ.
   const slotDisabled = (slot: string) => {
-    return bookedSlots.some((b) =>
-      isSlotConflict(b.time, b.duration, slot, duration)
-    );
+    const [hour, minute] = slot.split(":").map(Number);
+    const slotMinute = hour * 60 + minute;
+    return bookedSlots.some((booking) => {
+      const [bookingHour, bookingMinute] = booking.time.split(":").map(Number);
+      const start = bookingHour * 60 + bookingMinute;
+      const end = start + booking.duration * 60;
+      return slotMinute >= start && slotMinute < end;
+    });
+  };
+  const overlappingBooking = (slot: string, selectedDuration = duration) =>
+    bookedSlots.find((b) => isSlotConflict(b.time, b.duration, slot, selectedDuration));
+
+  const selectTime = (slot: string) => {
+    const conflict = overlappingBooking(slot);
+    if (conflict) {
+      toast.error(`Ca ${slot}–${getEndTime(slot, duration).toFixed(2).replace(".00", ":00").replace(".50", ":30")} bị trùng với ca đã đặt ${conflict.time}–${getEndTime(conflict.time, conflict.duration).toFixed(2).replace(".00", ":00").replace(".50", ":30")}. Vui lòng chỉnh giờ hoặc thời lượng.`);
+      return;
+    }
+    setTime(slot);
   };
 
   const courtPrice = selectedCourt?.price ?? field?.pricePerHour ?? 0;
@@ -203,6 +257,35 @@ export default function Booking() {
     setCustomer((prev) => ({ ...prev, [name]: value }));
   };
 
+  const goToStep = (step: number) => {
+    setCurrentStep(step);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const advanceStep = () => {
+    if (currentStep === 1) {
+      if (!selectedCourt || !date || !time) {
+        toast.error("Vui lòng chọn sân, ngày và khung giờ trước khi tiếp tục");
+        return;
+      }
+      if (!isDurationValid(duration) || overlappingBooking(time)) {
+        toast.error("Khung giờ hoặc thời lượng đã chọn không còn phù hợp");
+        return;
+      }
+    }
+    if (currentStep === 2) {
+      if (!customer.fullName.trim()) {
+        toast.error("Vui lòng nhập họ và tên");
+        return;
+      }
+      if (!customer.phone.trim() || customer.phone.trim().length < 9) {
+        toast.error("Số điện thoại chưa hợp lệ");
+        return;
+      }
+    }
+    goToStep(Math.min(3, currentStep + 1));
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -219,7 +302,7 @@ export default function Booking() {
       return;
     }
     if (!isDurationValid(duration)) {
-      toast.error("Thời lượng đặt sân vượt quá giờ đóng cửa (22:00)");
+      toast.error(`Thời lượng đặt sân vượt quá giờ đóng cửa (${field.closeTime})`);
       return;
     }
     if (!customer.fullName.trim()) {
@@ -230,8 +313,8 @@ export default function Booking() {
       toast.error("Số điện thoại không hợp lệ");
       return;
     }
-    if (slotDisabled(time)) {
-      toast.error("Khung giờ này đã có người đặt. Vui lòng chọn giờ khác.");
+    if (overlappingBooking(time)) {
+      toast.error("Khung giờ này bị chồng với một ca đã đặt. Vui lòng chỉnh giờ hoặc thời lượng.");
       return;
     }
 
@@ -240,7 +323,7 @@ export default function Booking() {
 
     try {
       for (const d of recurringDates) {
-        const slots = await getBookedSlots(selectedCourt.id, d);
+        const slots = await getBookedSlots(selectedCourt.id, d, true);
         if (slots.some((b) => isSlotConflict(b.time, b.duration, time, duration))) {
           toast.error(`Khung giờ ngày ${d} vừa được đặt. Vui lòng chọn giờ khác.`);
           if (d === date) setBookedSlots(slots);
@@ -259,12 +342,6 @@ export default function Booking() {
     if (bibs > 0) services.push({ name: "Áo pitch", quantity: bibs, price: 10000 });
     if (water > 0) services.push({ name: "Nước lọc", quantity: water, price: 10000 });
     if (mineralWater > 0) services.push({ name: "Nước muối khoáng", quantity: mineralWater, price: 15000 });
-
-    const getPaymentStatus = () => {
-      if (paymentMethod === "full") return "paid";
-      if (paymentMethod === "deposit") return "deposit_paid";
-      return "unpaid";
-    };
 
     const payload = {
       fieldId: field.id,
@@ -285,16 +362,28 @@ export default function Booking() {
       },
       services,
       paymentMethod,
-      paymentStatus: getPaymentStatus(),
-      status: "pending",
       voucherCode: appliedVoucher?.code || "",
       discount: appliedVoucher?.discountAmount || 0,
       createdAt: new Date().toISOString(),
     };
 
-    if (paymentMethod === "cash") {
-      try {
-        const res = await api.post("/bookings", payload);
+    try {
+      // Tạo đơn trước khi vào Paygate để khách thoát trang vẫn thấy một đơn
+      // "chưa thanh toán". Backend luôn khởi tạo paymentStatus = unpaid.
+      const res = await api.post("/bookings", payload);
+      // Đơn đã được backend giữ slot ngay tại đây, trước khi chuyển Paygate.
+      // Xóa cache và cập nhật UI tức thì để quay lại không cần F5.
+      for (const bookedDate of recurringDates) {
+        invalidateApiCache(`bookings:date:${bookedDate}`);
+      }
+      if (res.data.date === date && res.data.courtId === selectedCourt.id) {
+        setBookedSlots((previous) => previous.some((booking) => booking.id === res.data.id)
+          ? previous
+          : [...previous, res.data]);
+      }
+      window.dispatchEvent(new CustomEvent("booking:created", { detail: res.data }));
+
+      if (paymentMethod === "cash") {
         const code = `BK${String(res.data.id).padStart(6, "0")}`;
         const qrData = `CHECKIN-${code} | Sân: ${payload.fieldName} - ${payload.court} | Tên: ${payload.customer.fullName} | ĐT: ${payload.customer.phone}`;
         const checkinQrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250`;
@@ -305,21 +394,22 @@ export default function Booking() {
           checkinQrUrl,
         });
         toast.success("Đặt sân thành công!");
-      } catch {
-        toast.error("Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
-      } finally {
         setLoading(false);
+        return;
       }
-      return;
-    }
 
-    setLoading(false);
-    navigate("/paygate", { state: { payload, deposit, total } });
+      setLoading(false);
+      navigate("/paygate", { state: { payload, booking: res.data, deposit, total } });
+    } catch (error: unknown) {
+      const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(errorMessage || "Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
+      setLoading(false);
+    }
   };
 
   if (loadingData) {
     return (
-      <div className="flex flex-col items-center justify-center py-36 gap-3 bg-black min-h-screen">
+      <div className="flex flex-col items-center justify-center py-36 gap-3 bg-[#f7f8f6] min-h-screen">
         <Loader2 className="w-10 h-10 animate-spin text-yellow-500" />
         <p className="text-gray-400 text-sm font-medium">Đang chuẩn bị trang đặt sân...</p>
       </div>
@@ -328,13 +418,15 @@ export default function Booking() {
 
   if (!fieldIdParam || !field) {
     return (
-      <div className="max-w-lg mx-auto py-24 px-4 text-center">
-        <div className="text-6xl mb-4 opacity-80">🏀</div>
-        <h2 className="text-2xl font-bold text-white mb-2">Chưa chọn cơ sở thể thao</h2>
-        <p className="text-gray-400 mb-6">Vui lòng chọn sân trước khi thực hiện đặt lịch.</p>
-        <Link to="/fields" className="btn-primary inline-flex items-center gap-2 px-6 py-3 rounded-xl">
-          Tìm sân ngay →
-        </Link>
+      <div className="min-h-[62vh] bg-[#f7f8f6] flex items-center justify-center px-4">
+        <div className="max-w-lg w-full rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-amber-50 text-3xl">🏀</div>
+          <h2 className="text-2xl font-bold text-slate-950 mb-2">Chưa chọn sân bóng rổ</h2>
+          <p className="text-slate-500 mb-6">Vui lòng chọn sân trước khi thực hiện đặt lịch.</p>
+          <Link to="/fields" className="btn-primary inline-flex items-center gap-2 px-6 py-3 rounded-xl">
+            Tìm sân ngay →
+          </Link>
+        </div>
       </div>
     );
   }
@@ -342,27 +434,27 @@ export default function Booking() {
   if (success) {
     return (
       <div className="max-w-lg mx-auto py-20 px-4">
-        <div className="bg-zinc-900 rounded-3xl border border-yellow-500/30 p-8 md:p-10 text-center shadow-2xl relative overflow-hidden">
+        <div className="bg-white rounded-3xl border border-amber-200 p-8 md:p-10 text-center shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
           
           <div className="w-16 h-16 rounded-full bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center mx-auto mb-5 text-yellow-400">
             <CheckCircle2 className="w-8 h-8" />
           </div>
 
-          <h2 className="text-2xl font-extrabold text-white mb-2">
+          <h2 className="text-2xl font-extrabold text-slate-950 mb-2">
             {location.state?.isAutoTransfer ? "Chuyển khoản thành công!" : "Đặt sân thành công!"}
           </h2>
-          <p className="text-gray-400 text-sm mb-6">
+          <p className="text-slate-500 text-sm mb-6">
             Mã đơn của bạn: <span className="font-extrabold text-yellow-400 text-base">{success.code}</span>
           </p>
 
-          <div className="bg-black/80 border border-white/10 rounded-2xl p-5 mb-8">
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-8">
             {success.checkinQrUrl ? (
               <img src={success.checkinQrUrl} alt="Check-in QR" className="w-44 h-44 mx-auto object-contain rounded-xl bg-white p-2" />
             ) : (
               <QrCode className="w-40 h-40 mx-auto text-yellow-500" />
             )}
-            <p className="text-xs text-gray-400 mt-3 font-medium">
+            <p className="text-xs text-slate-500 mt-3 font-medium">
               Vui lòng xuất trình mã QR này khi check-in tại quầy lễ tân sân bóng.
             </p>
           </div>
@@ -387,7 +479,7 @@ export default function Booking() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-gray-200 py-10 px-4">
+    <div className="min-h-screen bg-[#f7f8f6] text-slate-700 py-10 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Breadcrumb */}
         <div className="text-xs text-gray-500 mb-8 flex items-center gap-2 tracking-wide uppercase font-bold">
@@ -398,17 +490,49 @@ export default function Booking() {
           <span className="text-yellow-500">Đặt lịch thi đấu</span>
         </div>
 
+        <div className="mb-8 rounded-3xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm" aria-label={`Bước ${currentStep} trên 3`}>
+          <div className="grid grid-cols-3 gap-2 md:gap-4">
+            {[
+              { step: 1, label: "Lịch sân", desc: "Sân & thời gian" },
+              { step: 2, label: "Thông tin", desc: "Dịch vụ & liên hệ" },
+              { step: 3, label: "Xác nhận", desc: "Thanh toán" },
+            ].map((item) => {
+              const active = currentStep === item.step;
+              const done = currentStep > item.step;
+              return (
+                <button
+                  key={item.step}
+                  type="button"
+                  disabled={item.step > currentStep}
+                  onClick={() => item.step < currentStep && goToStep(item.step)}
+                  className={`relative flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all ${active ? "bg-yellow-500/10 border border-yellow-500/35" : "border border-transparent"} ${item.step <= currentStep ? "cursor-pointer" : "cursor-not-allowed opacity-55"}`}
+                  aria-current={active ? "step" : undefined}
+                >
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-black ${active ? "bg-amber-400 text-slate-950" : done ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"}`}>
+                    {done ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : item.step}
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block text-sm font-extrabold ${active ? "text-slate-950" : "text-slate-500"}`}>{item.label}</span>
+                    <span className="hidden text-xs text-gray-500 md:block">{item.desc}</span>
+                  </span>
+                  {item.step < 3 && <span className={`absolute -right-3 top-1/2 hidden h-px w-4 md:block ${done ? "bg-emerald-500" : "bg-slate-200"}`} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* Main Booking Form */}
           <div className="lg:col-span-2 space-y-6">
-            
+            {currentStep === 1 && <>
             {/* 1. Chọn sân */}
-            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
-              <h3 className="text-lg font-extrabold text-white mb-2 flex items-center gap-2.5">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
+              <h3 className="text-lg font-extrabold text-slate-950 mb-2 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">1</span>
                 Chọn sân đấu
               </h3>
-              <p className="text-sm text-gray-400 mb-6 flex items-center gap-1.5">
+              <p className="text-sm text-slate-500 mb-6 flex items-center gap-1.5">
                 <MapPin className="w-4 h-4 text-yellow-500 shrink-0" />
                 {field.name} · {field.address}
               </p>
@@ -423,15 +547,15 @@ export default function Booking() {
                       onClick={() => setCourtId(c.id)}
                       className={`rounded-2xl p-4 text-left transition-all relative overflow-hidden border ${
                         active
-                          ? "bg-yellow-500/10 border-yellow-500 text-yellow-400 shadow-lg shadow-yellow-500/10 ring-1 ring-yellow-500/50"
-                          : "bg-black border-white/10 text-gray-300 hover:border-yellow-500/40"
+                          ? "bg-amber-50 border-amber-400 text-amber-700 shadow-sm ring-1 ring-amber-200"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:border-amber-300"
                       }`}
                     >
-                      <div className="font-bold text-sm text-white mb-1 flex items-center justify-between">
+                      <div className="font-bold text-sm text-slate-900 mb-1 flex items-center justify-between">
                         {c.name}
                         {active && <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />}
                       </div>
-                      <div className={`text-xs font-semibold ${active ? "text-yellow-400" : "text-gray-400"}`}>
+                      <div className={`text-xs font-semibold ${active ? "text-amber-700" : "text-slate-500"}`}>
                         {formatCurrency(c.price)} / giờ
                       </div>
                     </button>
@@ -441,8 +565,8 @@ export default function Booking() {
             </div>
 
             {/* 2. Ngày & Giờ */}
-            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
-              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
+              <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">2</span>
                 Thời gian đặt sân
               </h3>
@@ -461,8 +585,8 @@ export default function Booking() {
                       if (endDate && e.target.value > endDate) setEndDate("");
                       setTime("");
                     }}
-                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all"
-                    style={{ colorScheme: "dark" }}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    style={{ colorScheme: "light" }}
                   />
                 </div>
 
@@ -476,8 +600,8 @@ export default function Booking() {
                     min={date || new Date().toISOString().slice(0, 10)}
                     max={new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().slice(0, 10)}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all"
-                    style={{ colorScheme: "dark" }}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    style={{ colorScheme: "light" }}
                   />
                 </div>
               </div>
@@ -488,7 +612,7 @@ export default function Booking() {
                   Chọn khung giờ bắt đầu
                 </label>
                 <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                  {TIME_SLOTS.map((t) => {
+                  {timeSlots.map((t) => {
                     const disabled = !date || slotDisabled(t);
                     const selected = time === t;
                     return (
@@ -496,13 +620,13 @@ export default function Booking() {
                         key={t}
                         type="button"
                         disabled={disabled}
-                        onClick={() => setTime(t)}
+                        onClick={() => selectTime(t)}
                         className={`rounded-xl py-2.5 text-xs font-bold transition-all border ${
                           selected
                             ? "bg-yellow-500 text-black border-yellow-500 shadow-md shadow-yellow-500/30 scale-105"
                             : disabled
-                            ? "bg-zinc-900 text-zinc-600 border-white/5 cursor-not-allowed"
-                            : "bg-black text-gray-300 border-white/10 hover:border-yellow-500 hover:text-yellow-400"
+                            ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                            : "bg-white text-slate-700 border-slate-200 hover:border-amber-400 hover:text-amber-700"
                         }`}
                       >
                         {t}
@@ -531,8 +655,8 @@ export default function Booking() {
                           active
                             ? "bg-yellow-500 text-black border-yellow-500"
                             : disabled
-                            ? "bg-zinc-900 text-zinc-600 border-white/5 cursor-not-allowed opacity-50"
-                            : "bg-black text-gray-300 border-white/10 hover:border-yellow-500 hover:text-yellow-400"
+                            ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50"
+                            : "bg-white text-slate-700 border-slate-200 hover:border-amber-400 hover:text-amber-700"
                         }`}
                       >
                         {d.label}
@@ -540,17 +664,20 @@ export default function Booking() {
                     );
                   })}
                 </div>
-                {time && getEndTime(time, 1) >= CLOSING_TIME && (
+                {time && getEndTime(time, 1) >= closingTime && (
                   <p className="text-xs text-yellow-500/80 mt-2 font-medium">
-                    * Sân đóng cửa lúc {CLOSING_TIME}:00 nên chỉ áp dụng thời lượng phù hợp.
+                    * Sân đóng cửa lúc {field.closeTime} nên chỉ áp dụng thời lượng phù hợp.
                   </p>
                 )}
               </div>
             </div>
 
+            </>}
+
+            {currentStep === 2 && <>
             {/* 3. Dịch vụ tiện ích */}
-            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
-              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
+              <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">3</span>
                 Dịch vụ & Dụng cụ thêm
               </h3>
@@ -562,20 +689,20 @@ export default function Booking() {
                   { name: "Nước khoáng lạnh", price: "10.000đ / chai", val: water, set: setWater },
                   { name: "Nước muối điện giải", price: "15.000đ / chai", val: mineralWater, set: setMineralWater },
                 ].map((s, idx) => (
-                  <div key={idx} className="bg-black border border-white/5 rounded-2xl p-4 flex items-center justify-between">
+                  <div key={idx} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
                     <div>
-                      <div className="font-bold text-white text-sm">{s.name}</div>
+                      <div className="font-bold text-slate-900 text-sm">{s.name}</div>
                       <div className="text-xs text-yellow-500 font-semibold mt-0.5">{s.price}</div>
                     </div>
-                    <div className="flex items-center space-x-3 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1">
+                    <div className="flex items-center space-x-3 bg-white border border-slate-200 rounded-xl px-2 py-1">
                       <button
                         type="button"
                         onClick={() => s.set(Math.max(0, s.val - 1))}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 font-bold transition-all"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-950 hover:bg-slate-100 font-bold transition-all"
                       >
                         -
                       </button>
-                      <span className="font-extrabold text-white text-sm min-w-[18px] text-center">{s.val}</span>
+                      <span className="font-extrabold text-slate-900 text-sm min-w-[18px] text-center">{s.val}</span>
                       <button
                         type="button"
                         onClick={() => s.set(s.val + 1)}
@@ -590,8 +717,8 @@ export default function Booking() {
             </div>
 
             {/* 4. Thông tin người đặt */}
-            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
-              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
+              <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">4</span>
                 Thông tin liên hệ
               </h3>
@@ -603,7 +730,7 @@ export default function Booking() {
                     name="fullName"
                     value={customer.fullName}
                     onChange={handleCustomerChange}
-                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-gray-600"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
                     placeholder="Nguyễn Văn A"
                   />
                 </div>
@@ -613,7 +740,7 @@ export default function Booking() {
                     name="phone"
                     value={customer.phone}
                     onChange={handleCustomerChange}
-                    className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-gray-600"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
                     placeholder="0987xxxxxx"
                   />
                 </div>
@@ -626,15 +753,18 @@ export default function Booking() {
                   rows={2}
                   value={customer.note}
                   onChange={handleCustomerChange}
-                  className="w-full bg-black border border-white/10 focus:border-yellow-500 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all resize-none placeholder:text-gray-600"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all resize-none placeholder:text-slate-400"
                   placeholder="Yêu cầu chuẩn bị sân, bóng mới..."
                 />
               </div>
             </div>
 
+            </>}
+
+            {currentStep === 3 && <>
             {/* 5. Phương thức thanh toán */}
-            <div className="bg-zinc-900 rounded-3xl border border-white/5 p-6 md:p-8">
-              <h3 className="text-lg font-extrabold text-white mb-6 flex items-center gap-2.5">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
+              <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">5</span>
                 Phương thức thanh toán
               </h3>
@@ -667,7 +797,7 @@ export default function Booking() {
                       className={`block rounded-2xl p-5 cursor-pointer border transition-all relative overflow-hidden ${
                         active
                           ? "bg-yellow-500/10 border-yellow-500 ring-1 ring-yellow-500/40"
-                          : "bg-black border-white/10 hover:border-white/20"
+                          : "bg-slate-50 border-slate-200 hover:border-amber-300"
                       }`}
                     >
                       <div className="flex items-start justify-between mb-2">
@@ -675,19 +805,33 @@ export default function Booking() {
                           type="radio"
                           name="paymentMethod"
                           checked={active}
-                          onChange={() => setPaymentMethod(item.id as any)}
+                          onChange={() => setPaymentMethod(item.id as "deposit" | "full" | "cash")}
                           className="accent-yellow-500 w-4 h-4 mt-1"
                         />
-                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-400">
+                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500">
                           {item.badge}
                         </span>
                       </div>
-                      <div className="font-bold text-white text-base mt-2">{item.title}</div>
-                      <div className="text-xs text-gray-400 mt-1">{item.desc}</div>
+                      <div className="font-bold text-slate-900 text-base mt-2">{item.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">{item.desc}</div>
                     </label>
                   );
                 })}
               </div>
+            </div>
+            </>}
+
+            <div className="flex items-center justify-between gap-3 pt-1 lg:hidden">
+              {currentStep > 1 ? (
+                <button type="button" onClick={() => goToStep(currentStep - 1)} className="btn-outline min-h-12 flex-1 rounded-xl px-5 py-3 text-sm font-bold">
+                  <ArrowLeft className="mr-2 inline h-4 w-4" /> Quay lại
+                </button>
+              ) : <span />}
+              {currentStep < 3 && (
+                <button type="button" onClick={advanceStep} className="btn-primary min-h-12 flex-1 rounded-xl px-5 py-3 text-sm font-extrabold">
+                  Tiếp tục <ChevronRight className="ml-1 inline h-4 w-4" />
+                </button>
+              )}
             </div>
 
           </div>
@@ -695,45 +839,45 @@ export default function Booking() {
           {/* Sticky Order Summary Sidebar */}
           <div className="lg:col-span-1">
             <div className="sticky top-24">
-              <div className="bg-zinc-900 rounded-3xl border border-white/10 p-6 md:p-8 shadow-2xl relative overflow-hidden">
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-2xl pointer-events-none" />
 
-                <h3 className="text-xl font-extrabold text-white mb-6 flex items-center justify-between">
+                <h3 className="text-xl font-extrabold text-slate-950 mb-6 flex items-center justify-between">
                   Tóm tắt đơn đặt
                   <Sparkles className="w-5 h-5 text-yellow-400" />
                 </h3>
 
                 <div className="space-y-4 mb-6 text-sm">
-                  <div className="flex justify-between border-b border-white/5 pb-3">
-                    <span className="text-gray-400">Cơ sở</span>
-                    <span className="text-white font-bold text-right max-w-[60%] line-clamp-1">{field.name}</span>
+                  <div className="flex justify-between border-b border-slate-100 pb-3">
+                    <span className="text-slate-500">Cơ sở</span>
+                    <span className="text-slate-900 font-bold text-right max-w-[60%] line-clamp-1">{field.name}</span>
                   </div>
 
-                  <div className="flex justify-between border-b border-white/5 pb-3">
-                    <span className="text-gray-400">Sân đấu</span>
-                    <span className="text-white font-bold">{selectedCourt?.name || "—"}</span>
+                  <div className="flex justify-between border-b border-slate-100 pb-3">
+                    <span className="text-slate-500">Sân đấu</span>
+                    <span className="text-slate-900 font-bold">{selectedCourt?.name || "—"}</span>
                   </div>
 
-                  <div className="flex justify-between border-b border-white/5 pb-3">
-                    <span className="text-gray-400 flex items-center gap-1.5">
+                  <div className="flex justify-between border-b border-slate-100 pb-3">
+                    <span className="text-slate-500 flex items-center gap-1.5">
                       <CalendarDays className="w-4 h-4 text-yellow-500" /> Ngày
                     </span>
-                    <span className="text-white font-bold">
+                    <span className="text-slate-900 font-bold">
                       {date || "Chưa chọn"} {recurringDates.length > 1 && <span className="text-yellow-400 ml-1">({recurringDates.length} buổi)</span>}
                     </span>
                   </div>
 
-                  <div className="flex justify-between border-b border-white/5 pb-3">
-                    <span className="text-gray-400 flex items-center gap-1.5">
+                  <div className="flex justify-between border-b border-slate-100 pb-3">
+                    <span className="text-slate-500 flex items-center gap-1.5">
                       <Clock className="w-4 h-4 text-yellow-500" /> Giờ đá
                     </span>
-                    <span className="text-white font-bold">{time || "Chưa chọn"} ({duration}h)</span>
+                    <span className="text-slate-900 font-bold">{time || "Chưa chọn"} ({duration}h)</span>
                   </div>
 
                   {servicesTotal > 0 && (
-                    <div className="flex justify-between border-b border-white/5 pb-3">
-                      <span className="text-gray-400">Dịch vụ thêm</span>
-                      <span className="text-white font-bold">{formatCurrency(servicesTotal)}</span>
+                    <div className="flex justify-between border-b border-slate-100 pb-3">
+                      <span className="text-slate-500">Dịch vụ thêm</span>
+                      <span className="text-slate-900 font-bold">{formatCurrency(servicesTotal)}</span>
                     </div>
                   )}
 
@@ -744,7 +888,7 @@ export default function Booking() {
                         value={voucherCode}
                         onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
                         placeholder="MÃ GIẢM GIÁ..."
-                        className="bg-black border border-white/10 rounded-xl px-4 py-2.5 w-full text-xs font-bold text-white outline-none focus:border-yellow-500 uppercase placeholder:text-gray-600"
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 w-full text-xs font-bold text-slate-900 outline-none focus:border-amber-400 uppercase placeholder:text-slate-400"
                       />
                       <button
                         type="button"
@@ -758,29 +902,41 @@ export default function Booking() {
                   </div>
 
                   {appliedVoucher && (
-                    <div className="flex justify-between border-b border-white/5 pb-3 text-emerald-400">
+                    <div className="flex justify-between border-b border-slate-100 pb-3 text-emerald-600">
                       <span className="flex items-center gap-1"><Tag size={14} /> Giảm giá voucher</span>
                       <span className="font-extrabold">-{formatCurrency(appliedVoucher.discountAmount)}</span>
                     </div>
                   )}
 
                   {paymentMethod === "deposit" && (
-                    <div className="flex justify-between border-b border-white/5 pb-3 bg-yellow-500/5 px-3 py-2 rounded-xl">
-                      <span className="text-yellow-400 font-bold">Tiền cọc trước (30%)</span>
-                      <span className="text-yellow-400 font-extrabold text-base">{formatCurrency(deposit)}</span>
+                    <div className="flex justify-between border-b border-amber-100 pb-3 bg-amber-50 px-3 py-2 rounded-xl">
+                      <span className="text-amber-700 font-bold">Tiền cọc trước (30%)</span>
+                      <span className="text-amber-700 font-extrabold text-base">{formatCurrency(deposit)}</span>
                     </div>
                   )}
 
                   <div className="flex justify-between items-center pt-2">
-                    <span className="text-gray-400 font-bold">Tổng thanh toán</span>
-                    <span className="text-2xl font-black text-white">
+                    <span className="text-slate-500 font-bold">Tổng thanh toán</span>
+                    <span className="text-2xl font-black text-slate-950">
                       {formatCurrency(total)}
                     </span>
                   </div>
                 </div>
 
+                <div className="flex gap-3">
+                {currentStep > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => goToStep(currentStep - 1)}
+                    className="btn-outline hidden min-h-14 rounded-xl px-4 font-bold lg:inline-flex lg:items-center lg:justify-center"
+                    aria-label="Quay lại bước trước"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                )}
                 <button
-                  type="submit"
+                  type={currentStep === 3 ? "submit" : "button"}
+                  onClick={currentStep < 3 ? advanceStep : undefined}
                   disabled={loading}
                   className="btn-primary w-full py-4 rounded-xl font-extrabold flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-base"
                 >
@@ -788,6 +944,11 @@ export default function Booking() {
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
                       Đang xử lý...
+                    </>
+                  ) : currentStep < 3 ? (
+                    <>
+                      Tiếp tục bước {currentStep + 1}
+                      <ChevronRight className="w-5 h-5" />
                     </>
                   ) : paymentMethod === "cash" ? (
                     <>
@@ -801,8 +962,9 @@ export default function Booking() {
                     </>
                   )}
                 </button>
+                </div>
 
-                <div className="mt-6 pt-6 border-t border-white/5 space-y-2.5 text-xs text-gray-500">
+                <div className="mt-6 pt-6 border-t border-slate-100 space-y-2.5 text-xs text-slate-500">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-yellow-500 shrink-0" />
                     Bảo mật giao dịch 100% qua cổng kiểm duyệt

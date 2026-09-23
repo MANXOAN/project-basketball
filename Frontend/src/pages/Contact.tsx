@@ -1,5 +1,4 @@
 import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   CheckCircle2,
   Clock3,
@@ -8,7 +7,6 @@ import {
   MessageSquare,
   Phone,
   Send,
-  Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
 

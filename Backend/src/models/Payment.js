@@ -6,6 +6,7 @@ const paymentSchema = new mongoose.Schema(
     paymentCode: { type: String, required: true, unique: true, index: true },
     transactionCode: { type: String, default: "" },
     gateway: { type: String, default: "sepay" },
+    paymentKind: { type: String, enum: ["deposit", "balance", "full", "refund"], default: "full" },
     bankCode: { type: String, default: "" },
     accountNumber: { type: String, default: "" },
     amount: { type: Number, required: true },

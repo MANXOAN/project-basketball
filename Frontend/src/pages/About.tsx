@@ -1,14 +1,11 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Award,
   CheckCircle2,
   Clock3,
-  MapPin,
   Search,
   ShieldCheck,
   Sparkles,
-  Users,
   Trophy,
 } from "lucide-react";
 import banner2 from "../assets/banner2.jpg";
@@ -38,12 +35,6 @@ const reasons = [
   "Tích điểm thưởng và nhận voucher giảm giá cho đội bóng",
 ];
 
-const team = [
-  { name: "Ban Điều Hành", role: "Kết nối hệ thống sân bãi đạt chuẩn toàn quốc", color: "from-yellow-400 to-amber-600" },
-  { name: "Đội Ngũ Kỹ Thuật", role: "Phát triển nền tảng booking thể thao mượt mà 2026", color: "from-yellow-500 to-yellow-600" },
-  { name: "Trung Tâm Hỗ Trợ", role: "Đồng hành cùng vận động viên trong từng trận đấu", color: "from-amber-400 to-yellow-500" },
-];
-
 export default function About() {
   return (
     <div className="bg-black text-gray-200 min-h-screen">
@@ -65,7 +56,7 @@ export default function About() {
               Golden State kết nối bạn với sàn đấu đỉnh cao.
             </h1>
             <p className="mt-6 max-w-xl text-base leading-relaxed text-gray-300 sm:text-lg">
-              Nền tảng đặt sân thể thao chuyên nghiệp hàng đầu, giúp các đội bóng và vận động viên tìm kiếm, đặt lịch và ra sân nhanh nhất.
+              Nền tảng đặt sân bóng rổ chuyên nghiệp, giúp các đội bóng tìm kiếm, đặt lịch và ra sân nhanh nhất.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Link to="/fields" className="btn-primary inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-sm">
@@ -84,7 +75,7 @@ export default function About() {
         <div className="grid gap-4 rounded-3xl border border-white/10 bg-zinc-900 p-8 shadow-2xl sm:grid-cols-3">
           <div className="border-b border-white/5 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-6 text-center sm:text-left">
             <p className="text-4xl font-black text-yellow-400">2,400+</p>
-            <p className="mt-2 text-sm font-semibold text-gray-400">Sân bóng thể thao toàn quốc</p>
+            <p className="mt-2 text-sm font-semibold text-gray-400">Sân bóng rổ toàn quốc</p>
           </div>
           <div className="border-b border-white/5 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:px-6 text-center sm:text-left">
             <p className="text-4xl font-black text-yellow-400">150K+</p>
@@ -105,7 +96,7 @@ export default function About() {
               <Trophy className="w-4 h-4" /> Sứ mệnh của chúng tôi
             </div>
             <h2 className="text-3xl font-black leading-tight sm:text-4xl text-white">
-              Nâng tầm trải nghiệm thể thao cộng đồng.
+              Nâng tầm trải nghiệm bóng rổ cộng đồng.
             </h2>
             <p className="mt-5 leading-relaxed text-gray-400 text-sm md:text-base">
               Golden State xuất phát từ niềm đam mê bóng rổ và khao khát loại bỏ mọi phiền toái khi tìm sân: không còn phải gọi điện dò hỏi lịch trống, không sợ bị trùng giờ thi đấu, thanh toán cọc minh bạch và hoàn tiền công bằng.
@@ -129,7 +120,7 @@ export default function About() {
               “Mỗi trận bóng rổ không chỉ là những pha ghi điểm, mà là nơi tinh thần đồng đội và niềm đam mê được khẳng định.”
             </p>
             <p className="mt-6 text-xs uppercase font-bold tracking-widest text-yellow-400">
-              GoldenState Sports Club · 2026
+              GoldenState Basketball Club · 2026
             </p>
           </div>
         </div>
@@ -140,7 +131,7 @@ export default function About() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <h2 className="text-3xl font-black text-white mb-4">Vì Sao Nên Chọn GoldenState?</h2>
-            <p className="text-gray-400 text-sm">Trải nghiệm dịch vụ đặt sân thể thao hiện đại, bảo mật và tiện lợi nhất.</p>
+            <p className="text-gray-400 text-sm">Trải nghiệm dịch vụ đặt sân bóng rổ hiện đại, bảo mật và tiện lợi nhất.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

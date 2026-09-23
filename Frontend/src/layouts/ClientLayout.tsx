@@ -4,7 +4,7 @@ import Footer from "../components/Footer";
 
 export default function ClientLayout() {
     return (
-        <div className="min-h-screen bg-[#0B0B0B] font-sans text-gray-200 flex flex-col selection:bg-yellow-500 selection:text-black">
+        <div className="min-h-screen bg-[#f7f8f6] font-sans text-slate-900 flex flex-col selection:bg-yellow-400 selection:text-slate-950">
             <Header />
             <main className="flex-grow">
                 <Outlet />

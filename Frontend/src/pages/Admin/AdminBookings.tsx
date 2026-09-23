@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider } from "antd";
-import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, RefreshCcw, Download, Plus, Zap } from "lucide-react";
+import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, UserRound } from "lucide-react";
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
 import * as XLSX from 'xlsx';
 import { formatDateVi } from "../../lib/locale";
+import { createDemoBookings, demoCourts } from "../../data/demoData";
+import { Html5QrcodeScanner } from "html5-qrcode";
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [refundRequests, setRefundRequests] = useState<Booking[]>([]);
+  const [refundModalBooking, setRefundModalBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -14,22 +18,42 @@ export default function AdminBookings() {
   const [isPosOpen, setIsPosOpen] = useState(false);
   const [courts, setCourts] = useState<Court[]>([]);
   const [posForm] = Form.useForm();
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     try {
       const res = await api.get<Booking[]>("/bookings");
-      setBookings([...res.data].reverse());
+      const list = res.data.length ? res.data : createDemoBookings({ fullName: "Khách demo", phone: "0900000000" });
+      setBookings([...list].reverse());
+      api.get<Booking[]>("/bookings/refunds")
+        .then((refunds) => setRefundRequests(refunds.data))
+        .catch(() => setRefundRequests([]));
     } catch {
-      message.error("Không tải được danh sách đơn.");
+      setBookings(createDemoBookings({ fullName: "Khách demo", phone: "0900000000" }).reverse());
+      message.info("Đang hiển thị dữ liệu minh hoạ.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchBookings();
-    api.get<Court[]>("/courts").then(res => setCourts(res.data)).catch();
-  }, []);
+    api.get<Court[]>("/courts").then(res => setCourts(res.data.length ? res.data : demoCourts)).catch(() => setCourts(demoCourts));
+  }, [fetchBookings]);
+
+  // Không cần F5: khi khách hủy đơn/thanh toán ở thiết bị khác, admin lấy
+  // trạng thái mới từ backend khi quay lại tab và tối đa 10 giây/lần.
+  useEffect(() => {
+    const refresh = () => fetchBookings();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("booking:created", refresh);
+    const interval = window.setInterval(refresh, 10_000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("booking:created", refresh);
+      window.clearInterval(interval);
+    };
+  }, [fetchBookings]);
 
   const exportToExcel = () => {
     const exportData = filteredBookings.map(b => ({
@@ -55,9 +79,6 @@ export default function AdminBookings() {
   const handlePosSubmit = async (values: any) => {
     try {
       const st = values.time.format('HH:mm');
-      const [h, m] = st.split(':').map(Number);
-      const endTime = `${String(h + values.duration).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-
       const court = courts.find(c => c.id === values.courtId);
       await api.post('/bookings', {
         fieldId: court?.fieldId || 1,
@@ -83,45 +104,30 @@ export default function AdminBookings() {
     }
   };
 
-  const updateStatus = async (id: number, newStatus: string) => {
-    const current = bookings.find((b) => b.id === id);
-    if (current?.status === "cancelled" && newStatus === "confirmed") {
-      message.error("Đơn đã hủy — không thể xác nhận lại");
-      return;
-    }
-    if (current?.status === "cancelled" && newStatus === "pending") {
-      message.error("Đơn đã hủy — không thể chuyển về chờ xác nhận");
-      return;
-    }
+  const completeRefund = async (booking: Booking) => {
     try {
-      await api.patch(`/bookings/${id}`, { status: newStatus });
-      message.success("Cập nhật trạng thái thành công!");
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b))
-      );
+      await api.post(`/bookings/${booking.id}/refund`);
+      message.success("Đã xác nhận hoàn tiền");
+      setRefundModalBooking(null);
+      fetchBookings();
     } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message || "Cập nhật thất bại.";
-      message.error(msg);
+      const errorMessage = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || "Không thể hoàn tiền";
+      message.error(errorMessage);
     }
   };
 
-  const markPaymentStatus = async (id: number, status: string) => {
+  const copyRefundValue = async (value: string, label: string) => {
     try {
-      await api.patch(`/bookings/${id}`, { paymentStatus: status });
-      message.success(`Đã cập nhật thanh toán: ${status}`);
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, paymentStatus: status } : b))
-      );
+      await navigator.clipboard.writeText(value);
+      message.success(`Đã sao chép ${label}`);
     } catch {
-      message.error("Thất bại");
+      message.error("Không thể sao chép, vui lòng sao chép thủ công");
     }
   };
 
   const markCheckIn = async (id: number) => {
     try {
-      await api.patch(`/bookings/${id}`, { status: "completed" });
+      await api.post(`/bookings/${id}/check-in`);
       message.success("Khách đã Check-in (Hoàn thành đơn)");
       setBookings((prev) =>
         prev.map((b) => (b.id === id ? { ...b, status: "completed" } : b))
@@ -175,11 +181,6 @@ export default function AdminBookings() {
         <div>
           <div className="font-bold text-gray-800">{record.customer?.fullName}</div>
           <div className="text-gray-500 text-xs mt-0.5">{record.customer?.phone}</div>
-          {record.refundStk && (
-            <div className="text-[11px] text-red-600 mt-1 font-semibold flex items-center bg-red-50 px-2 py-0.5 rounded w-max">
-              <RefreshCcw size={10} className="mr-1" /> Hoàn tiền: {record.refundBank} - {record.refundStk}
-            </div>
-          )}
         </div>
       ),
     },
@@ -219,39 +220,40 @@ export default function AdminBookings() {
             {r.paymentMethod === "transfer" || r.paymentMethod === "deposit" ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
             {r.paymentMethod === "transfer" ? "Chuyển khoản" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
           </div>
-          <Select
-            value={r.paymentStatus || "unpaid"}
-            size="middle"
-            className="w-full shadow-sm"
-            style={{ minWidth: 140 }}
-            onChange={(v) => markPaymentStatus(r.id, v)}
-            options={[
-              { value: "unpaid", label: <span className="font-medium text-gray-600">Chưa TT</span> },
-              { value: "deposit_paid", label: <span className="font-medium text-violet-600">Đã cọc</span> },
-              { value: "paid", label: <span className="font-medium text-emerald-600">Đã TT đủ</span> },
-              { value: "refunded", label: <span className="font-medium text-orange-600">Đã hoàn</span> },
-            ]}
-          />
+          <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : r.paymentStatus === "refunded" ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+            {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : "Chưa thanh toán"}
+          </span>
         </div>
       ),
+    },
+    {
+      title: "Hoàn tiền",
+      key: "refund",
+      render: (_: unknown, r: Booking) => {
+        if (r.refundStatus === "pending") {
+          return (
+            <div className="min-w-[190px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <div className="font-bold">Đang chờ hoàn {formatCurrency(r.refundAmount || 0)}</div>
+              <div className="mt-1.5 space-y-0.5 text-amber-800">
+                <div><span className="font-semibold">Ngân hàng:</span> {r.refundBank || "Chưa có"}</div>
+                <div><span className="font-semibold">STK:</span> {r.refundStk || "Chưa có"}</div>
+              </div>
+            </div>
+          );
+        }
+        if (r.refundStatus === "completed") {
+          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}</div><div className="mt-1">{r.refundBank || "—"} · {r.refundStk || "—"}</div></div>;
+        }
+        return <span className="text-xs text-gray-400">Không có</span>;
+      },
     },
     {
       title: "Trạng thái",
       key: "status",
       render: (_: unknown, record: Booking) => (
-        <Select
-          value={record.status}
-          size="middle"
-          className="w-full shadow-sm"
-          style={{ minWidth: 140 }}
-          onChange={(v) => updateStatus(record.id, v)}
-          options={[
-            { value: "pending", label: <span className="font-medium text-amber-600">Chờ duyệt</span>, disabled: record.status === "cancelled" },
-            { value: "confirmed", label: <span className="font-medium text-blue-600">Đã duyệt</span>, disabled: record.status === "cancelled" },
-            { value: "completed", label: <span className="font-medium text-emerald-600">Hoàn thành</span> },
-            { value: "cancelled", label: <span className="font-medium text-red-600">Đã hủy</span> },
-          ]}
-        />
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${record.status === "completed" ? "bg-emerald-50 text-emerald-700" : record.status === "confirmed" ? "bg-blue-50 text-blue-700" : record.status === "cancelled" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+          {record.status === "completed" ? "Hoàn thành" : record.status === "confirmed" ? "Đã xác nhận" : record.status === "cancelled" ? "Đã hủy" : "Chờ thanh toán"}
+        </span>
       ),
     },
     {
@@ -259,19 +261,14 @@ export default function AdminBookings() {
       key: "actions",
       render: (_: unknown, r: Booking & { refundStk?: string }) => (
         <div className="flex flex-col gap-2">
-          {r.status === "cancelled" && r.paymentStatus !== "refunded" && r.refundStk && (
-            <Button size="small" danger type="primary" ghost className="font-semibold shadow-sm w-full text-xs" onClick={() => markPaymentStatus(r.id, "refunded")}>
-              Mark Hoàn Tiền
+          {r.status === "cancelled" && r.refundStatus === "pending" && (
+            <Button size="small" danger type="primary" ghost className="font-semibold shadow-sm w-full text-xs" onClick={() => setRefundModalBooking(r)}>
+              Xử lý hoàn tiền
             </Button>
           )}
           {r.status === "confirmed" && (
             <Button size="small" type="primary" className="bg-emerald-500 hover:bg-emerald-600 font-semibold shadow-emerald-500/30 shadow-md w-full border-0 text-xs flex items-center justify-center gap-1" onClick={() => markCheckIn(r.id)}>
               <CheckCircle2 size={12} /> Check-in
-            </Button>
-          )}
-          {r.status === "pending" && (
-            <Button size="small" danger type="text" className="w-full text-xs hover:bg-red-50" onClick={() => updateStatus(r.id, "cancelled")}>
-              Hủy đơn
             </Button>
           )}
         </div>
@@ -290,38 +287,33 @@ export default function AdminBookings() {
   const openScanner = () => {
     setIsScannerOpen(true);
     setTimeout(() => {
-      // @ts-ignore
-      if (window.Html5QrcodeScanner) {
-        // @ts-ignore
-        const html5QrcodeScanner = new window.Html5QrcodeScanner(
-          "qr-reader",
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          /* verbose= */ false
-        );
-        html5QrcodeScanner.render((decodedText: string) => {
-          handleQrCheckIn(decodedText);
-          html5QrcodeScanner.clear();
-          setIsScannerOpen(false);
-        }, () => { });
-      } else {
-        message.error("Thư viện quét mã QR chưa được tải.");
-      }
+      const scanner = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+      scannerRef.current = scanner;
+      scanner.render(async (decodedText) => {
+        await handleQrCheckIn(decodedText);
+        await scanner.clear();
+        scannerRef.current = null;
+        setIsScannerOpen(false);
+      }, () => undefined);
     }, 100);
   };
 
-  const closeScanner = () => {
+  const closeScanner = async () => {
+    if (scannerRef.current) {
+      await scannerRef.current.clear();
+      scannerRef.current = null;
+    }
     setIsScannerOpen(false);
-    try {
-      const el = document.getElementById("qr-reader");
-      if (el) el.innerHTML = "";
-    } catch (e) { }
   };
 
   const filteredBookings = bookings.filter(b => {
     const matchesSearch = b.customer?.phone?.includes(searchText) || b.customer?.fullName?.toLowerCase().includes(searchText.toLowerCase()) || `BK${String(b.id).padStart(6, "0")}`.includes(searchText.toUpperCase());
-    const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'refund_pending' ? b.refundStatus === 'pending' : b.status === statusFilter);
     return matchesSearch && matchesStatus;
   });
+  const pendingRefunds = refundRequests.filter((booking) => booking.refundStatus === "pending");
+  const completedRefunds = refundRequests.filter((booking) => booking.refundStatus === "completed");
+  const pendingRefundTotal = pendingRefunds.reduce((total, booking) => total + Number(booking.refundAmount || 0), 0);
 
   return (
     <div className="animate-in fade-in duration-500">
@@ -354,6 +346,44 @@ export default function AdminBookings() {
         </div>
       </div>
 
+      <div className="mb-6 overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-[0_8px_30px_rgb(245,158,11,0.10)]">
+        <div className="flex flex-col gap-5 bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20">
+              <Landmark size={22} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-950">Hàng chờ hoàn tiền</h2>
+              <p className="mt-1 text-sm text-slate-600">Đối chiếu ngân hàng và STK, chuyển tiền, sau đó mới xác nhận hoàn tất.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('refund_pending')}
+            className="min-h-11 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-amber-500 hover:text-slate-950"
+          >
+            Xử lý {pendingRefunds.length} yêu cầu
+          </button>
+        </div>
+        <div className="grid grid-cols-1 divide-y divide-slate-100 border-t border-amber-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="px-6 py-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Đang chờ hoàn</div>
+            <div className="mt-1 text-2xl font-black text-amber-600">{pendingRefunds.length}</div>
+          </div>
+          <div className="px-6 py-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Tổng cần hoàn</div>
+            <div className="mt-1 text-xl font-black text-slate-950">{formatCurrency(pendingRefundTotal)}</div>
+          </div>
+          <div className="flex items-center gap-3 px-6 py-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CircleCheck size={18} /></span>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Đã hoàn</div>
+              <div className="mt-0.5 font-black text-emerald-700">{completedRefunds.length} đơn</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 mb-6">
         <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100 overflow-x-auto">
           <span className="text-sm font-bold text-gray-500 flex items-center whitespace-nowrap uppercase tracking-wider"><Filter size={16} className="mr-2" /> Dùng Bộ Lọc:</span>
@@ -363,7 +393,8 @@ export default function AdminBookings() {
               { key: 'pending', label: 'Chờ duyệt' },
               { key: 'confirmed', label: 'Đã duyệt' },
               { key: 'completed', label: 'Hoàn thành' },
-              { key: 'cancelled', label: 'Đã hủy' }
+              { key: 'cancelled', label: 'Đã hủy' },
+              { key: 'refund_pending', label: 'Chờ hoàn tiền' },
             ].map(s => (
               <button
                 key={s.key}
@@ -388,6 +419,51 @@ export default function AdminBookings() {
           }}
         />
       </div>
+
+      <Modal
+        open={Boolean(refundModalBooking)}
+        onCancel={() => setRefundModalBooking(null)}
+        footer={null}
+        width={560}
+        destroyOnClose
+        className="rounded-2xl overflow-hidden"
+        title={null}
+      >
+        {refundModalBooking && (
+          <div className="-mx-6 -mt-5 overflow-hidden">
+            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-900 px-7 py-6 text-white">
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-400 text-slate-950"><Landmark size={21} /></span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Xử lý hoàn tiền</p>
+                  <h2 className="mt-1 text-xl font-black">BK{String(refundModalBooking.id).padStart(6, "0")}</h2>
+                </div>
+              </div>
+              <div className="mt-5 border-t border-white/10 pt-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-300">Số tiền cần chuyển</div>
+                <div className="mt-1 text-3xl font-black text-amber-300">{formatCurrency(refundModalBooking.refundAmount || 0)}</div>
+              </div>
+            </div>
+
+            <div className="space-y-4 bg-white px-7 py-6">
+              <p className="text-sm leading-6 text-slate-600">Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</p>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-950"><UserRound size={16} className="text-amber-600" /> Người nhận hoàn tiền</div>
+                <div className="space-y-3 text-sm">
+                  <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Khách hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.customer?.fullName || "—"}</div></div>
+                  <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Ngân hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.refundBank || "Chưa cung cấp"}</div></div>
+                  <div className="flex items-end justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Số tài khoản</div><div className="mt-0.5 font-mono text-base font-black text-slate-950">{refundModalBooking.refundStk || "Chưa cung cấp"}</div></div><button type="button" onClick={() => copyRefundValue(refundModalBooking.refundStk || "", "số tài khoản")} disabled={!refundModalBooking.refundStk} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy size={14} /> Sao chép</button></div>
+                  <div className="flex items-end justify-between gap-3 border-t border-slate-200 pt-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Nội dung chuyển khoản</div><div className="mt-0.5 font-mono font-black text-slate-950">HOAN BK{String(refundModalBooking.id).padStart(6, "0")}</div></div><button type="button" onClick={() => copyRefundValue(`HOAN BK${String(refundModalBooking.id).padStart(6, "0")}`, "nội dung chuyển khoản")} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Copy size={14} /> Sao chép</button></div>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setRefundModalBooking(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Quay lại</button>
+                <button type="button" onClick={() => completeRefund(refundModalBooking)} className="min-h-11 flex-1 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500">Xác nhận đã chuyển tiền</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         title={<span className="font-bold text-lg">Quét mã QR Check-in</span>}

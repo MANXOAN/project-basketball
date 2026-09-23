@@ -18,7 +18,7 @@ export function authRequired(req, res, next) {
 
 export function adminRequired(req, res, next) {
   authRequired(req, res, async () => {
-    if (req.user?.role === "admin" || req.user?.email === "admin@gmail.com") {
+    if (req.user?.role === "admin") {
       return next();
     }
     return res.status(403).json({ message: "Admin only" });

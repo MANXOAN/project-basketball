@@ -3,12 +3,18 @@ import Court from "../models/Court";
 import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 
+const basketballSportValues = ["basketball", "Bóng rổ", "Bóng Rổ", "Sân Bóng Rổ"];
+
+function basketballFieldPayload(body) {
+  return { ...body, sport: "basketball", sportLabel: "Bóng rổ" };
+}
+
 export async function getFields(req, res) {
   try {
     const filter = {};
     if (req.query.status) filter.status = req.query.status;
     if (req.query.city) filter.city = req.query.city;
-    if (req.query.sport) filter.sport = req.query.sport;
+    filter.sport = { $in: basketballSportValues };
     const fields = await Field.find(filter).sort({ id: 1 });
     return res.json(serializeMany(fields));
   } catch (e) {
@@ -19,7 +25,7 @@ export async function getFields(req, res) {
 export async function getField(req, res) {
   try {
     const id = Number(req.params.id);
-    const field = await Field.findOne({ id });
+    const field = await Field.findOne({ id, sport: { $in: basketballSportValues } });
     if (!field) return res.status(404).json({ message: "Not found" });
     return res.json(serialize(field));
   } catch (e) {
@@ -39,7 +45,7 @@ export async function createField(req, res) {
       }
     }
     const id = await nextId("fields");
-    const field = await Field.create({ ...req.body, id });
+    const field = await Field.create({ ...basketballFieldPayload(req.body), id });
     return res.status(201).json(serialize(field));
   } catch (e) {
     return res.status(400).json({ message: e.message });
@@ -60,8 +66,8 @@ export async function updateField(req, res) {
     }
     const field = await Field.findOneAndUpdate(
       { id },
-      { $set: req.body },
-      { new: true }
+      { $set: basketballFieldPayload(req.body) },
+      { new: true, runValidators: true }
     );
     if (!field) return res.status(404).json({ message: "Not found" });
     return res.json(serialize(field));
