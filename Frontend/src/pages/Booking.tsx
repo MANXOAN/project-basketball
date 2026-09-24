@@ -45,6 +45,21 @@ const getEndTime = (startTime: string, dur: number): number => {
   return hours + minutes / 60 + dur;
 };
 
+const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+const vietnamTodayIso = (nowMs = Date.now()) =>
+  new Date(nowMs + VIETNAM_OFFSET_MS).toISOString().slice(0, 10);
+
+const isPastVietnamSlot = (slotDate: string, slotTime: string, nowMs = Date.now()) => {
+  if (!slotDate || !slotTime) return false;
+  const vietnamNow = new Date(nowMs + VIETNAM_OFFSET_MS);
+  const today = vietnamNow.toISOString().slice(0, 10);
+  if (slotDate < today) return true;
+  if (slotDate > today) return false;
+  const [hour, minute] = slotTime.split(":").map(Number);
+  return hour * 60 + minute <= vietnamNow.getUTCHours() * 60 + vietnamNow.getUTCMinutes();
+};
+
 export default function Booking() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -59,6 +74,7 @@ export default function Booking() {
   const timeParam = params.get("time");
 
   const [loading, setLoading] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
   const [currentStep, setCurrentStep] = useState(1);
   const [loadingData, setLoadingData] = useState(true);
   const [success, setSuccess] = useState<null | { code: string; paymentMethod: string; checkinQrUrl?: string }>(null);
@@ -80,6 +96,12 @@ export default function Booking() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(bookingDraft?.paymentMethod || null);
   const [paymentError, setPaymentError] = useState("");
   const [bookedSlots, setBookedSlots] = useState<Awaited<ReturnType<typeof getBookedSlots>>>([]);
+  const todayIso = vietnamTodayIso(clockNow);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const [endDate, setEndDate] = useState(
     bookingDraft?.scheduleSegments?.[0]?.endDate || (bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : "")
@@ -246,6 +268,7 @@ export default function Booking() {
   // làm mờ 16:00, 16:30, 17:00, 17:30; 15:30 vẫn hiện để báo va chạm rõ ràng
   // nếu người dùng chọn thời lượng kéo sang ca đã giữ.
   const slotDisabled = (slot: string) => {
+    if (isPastVietnamSlot(date, slot, clockNow)) return true;
     const [hour, minute] = slot.split(":").map(Number);
     const slotMinute = hour * 60 + minute;
     return bookedSlots.some((booking) => {
@@ -259,6 +282,10 @@ export default function Booking() {
     bookedSlots.find((b) => isSlotConflict(b.time, b.duration, slot, selectedDuration));
 
   const selectTime = (slot: string) => {
+    if (isPastVietnamSlot(date, slot)) {
+      toast.error("Khung giờ này đã qua, vui lòng chọn giờ khác");
+      return;
+    }
     const conflict = overlappingBooking(slot);
     if (conflict) {
       toast.error(`Ca ${slot}–${getEndTime(slot, duration).toFixed(2).replace(".00", ":00").replace(".50", ":30")} bị trùng với ca đã đặt ${conflict.time}–${getEndTime(conflict.time, conflict.duration).toFixed(2).replace(".00", ":00").replace(".50", ":30")}. Vui lòng chỉnh giờ hoặc thời lượng.`);
@@ -332,6 +359,11 @@ export default function Booking() {
         toast.error("Tổng số buổi phải từ 1 đến 60");
         return;
       }
+      const elapsedOccurrence = scheduledOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
+      if (elapsedOccurrence) {
+        toast.error("Khung giờ " + elapsedOccurrence.time + " ngày " + elapsedOccurrence.date + " đã qua");
+        return;
+      }
       if (bookingMode === "full_field" && courts.length < 2) {
         toast.error("Cơ sở cần ít nhất 2 sân con đang hoạt động để bao sân");
         return;
@@ -367,6 +399,11 @@ export default function Booking() {
     }
     if (!time) {
       toast.error("Vui lòng chọn giờ đặt sân");
+      return;
+    }
+    const elapsedOccurrence = scheduledOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
+    if (elapsedOccurrence) {
+      toast.error("Khung giờ " + elapsedOccurrence.time + " ngày " + elapsedOccurrence.date + " đã qua, vui lòng chọn giờ khác");
       return;
     }
     if (!isDurationValid(duration)) {
@@ -692,7 +729,7 @@ export default function Booking() {
                   <input
                     type="date"
                     value={date}
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={todayIso}
                     onChange={(e) => {
                       setDate(e.target.value);
                       if (endDate && e.target.value > endDate) setEndDate("");
@@ -710,7 +747,7 @@ export default function Booking() {
                   <input
                     type="date"
                     value={endDate}
-                    min={date || new Date().toISOString().slice(0, 10)}
+                    min={date || todayIso}
                     max={new Date(new Date().setMonth(new Date().getMonth() + 12)).toISOString().slice(0, 10)}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
@@ -805,17 +842,17 @@ export default function Booking() {
                     <div key={period.id} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_1fr_0.8fr_auto]">
                       <label className="text-xs font-bold text-slate-500">
                         Từ ngày
-                        <input type="date" value={period.startDate} min={date || new Date().toISOString().slice(0, 10)} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, startDate: event.target.value, endDate: item.endDate && item.endDate < event.target.value ? "" : item.endDate } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
+                        <input type="date" value={period.startDate} min={date || todayIso} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, startDate: event.target.value, endDate: item.endDate && item.endDate < event.target.value ? "" : item.endDate } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
                       </label>
                       <label className="text-xs font-bold text-slate-500">
                         Đến ngày
-                        <input type="date" value={period.endDate} min={period.startDate || date || new Date().toISOString().slice(0, 10)} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, endDate: event.target.value } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
+                        <input type="date" value={period.endDate} min={period.startDate || date || todayIso} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, endDate: event.target.value } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
                       </label>
                       <label className="text-xs font-bold text-slate-500">
                         Khung giờ
                         <select value={period.time} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, time: event.target.value } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400">
                           <option value="">Chọn giờ</option>
-                          {timeSlots.filter((slot) => getEndTime(slot, duration) <= closingTime).map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+                          {timeSlots.filter((slot) => getEndTime(slot, duration) <= closingTime).map((slot) => <option key={slot} value={slot} disabled={isPastVietnamSlot(period.startDate, slot, clockNow)}>{slot}</option>)}
                         </select>
                       </label>
                       <button type="button" onClick={() => setSchedulePeriods((periods) => periods.filter((item) => item.id !== period.id))} className="mt-5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 bg-white text-red-500 hover:bg-red-50" aria-label={"Xóa giai đoạn " + (index + 2)}>

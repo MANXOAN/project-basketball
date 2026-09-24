@@ -174,6 +174,19 @@ async function run() {
     ]);
     await setCounter("bookings", 100);
 
+    const vietnamToday = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sameDayPastResponse = responseRecorder();
+    await createBooking({
+      user: { id: 49, email: "past.example.com", fullName: "Khách giờ cũ", role: "user" },
+      body: {
+        fieldId: 10, courtId: 11, date: vietnamToday, time: "00:00", duration: 1,
+        customer: { fullName: "Khách giờ cũ", phone: "0900000049" },
+        services: [], paymentMethod: "cash",
+      },
+    }, sameDayPastResponse.res);
+    assert.equal(sameDayPastResponse.result.statusCode, 400);
+    assert.equal(sameDayPastResponse.result.body.message, "Khung giờ 00:00 ngày " + vietnamToday + " đã qua, vui lòng chọn thời gian khác");
+
     const groupedResponse = responseRecorder();
     await createBooking({
       user: { id: 50, email: "group@example.com", fullName: "Khách nhóm", role: "user" },

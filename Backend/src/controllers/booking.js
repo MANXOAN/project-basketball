@@ -43,7 +43,17 @@ function isBasketballCourt(court) {
 }
 
 function bookingStart(date, time) {
-  return new Date(`${date}T${time}:00`);
+  return new Date(String(date) + "T" + String(time) + ":00");
+}
+
+function vietnamBookingStartMs(date, time) {
+  const [year, month, day] = String(date).split("-").map(Number);
+  const [hour, minute] = String(time).split(":").map(Number);
+  return Date.UTC(year, month - 1, day, hour - 7, minute, 0, 0);
+}
+
+function pastOccurrence(occurrences, now = Date.now()) {
+  return occurrences.find((occurrence) => vietnamBookingStartMs(occurrence.date, occurrence.time) <= now);
 }
 
 function refundableAmount(booking) {
@@ -357,8 +367,11 @@ export async function createBooking(req, res) {
     if (!Number.isFinite(dur) || dur <= 0 || dur > 8) {
       return res.status(400).json({ message: "Thời lượng đặt sân không hợp lệ" });
     }
-    if (occurrences.some((occurrence) => occurrence.date < new Date().toISOString().slice(0, 10))) {
-      return res.status(400).json({ message: "Không thể đặt lịch trong quá khứ" });
+    const elapsedOccurrence = pastOccurrence(occurrences);
+    if (elapsedOccurrence) {
+      return res.status(400).json({
+        message: "Khung giờ " + elapsedOccurrence.time + " ngày " + elapsedOccurrence.date + " đã qua, vui lòng chọn thời gian khác",
+      });
     }
 
     const [selectedCourt, selectedField, activeFieldCourts] = await Promise.all([
