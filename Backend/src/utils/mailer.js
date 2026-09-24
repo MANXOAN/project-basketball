@@ -1,19 +1,25 @@
 import nodemailer from "nodemailer";
 
 export async function sendMail(to, subject, html) {
+    if (!to || !process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        console.warn("Email skipped: missing recipient or EMAIL_USER/EMAIL_PASS configuration");
+        return false;
+    }
     try {
         console.log(`\n\n=== CHUẨN BỊ GỬI EMAIL ĐẾN: ${to} ===`);
 
-        // Sử dụng cấu hình Gmail thực tế lấy từ file .env
         const transporter = nodemailer.createTransport({
             service: "gmail",
             auth: {
                 user: process.env.EMAIL_USER,
+            connectionTimeout: 8000,
+            greetingTimeout: 8000,
+            socketTimeout: 10000,
                 pass: process.env.EMAIL_PASS,
             },
         });
 
-        let info = await transporter.sendMail({
+        await transporter.sendMail({
             from: `"Hệ thống Sân Bóng" <${process.env.EMAIL_USER}>`,
             to,
             subject,

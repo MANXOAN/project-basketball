@@ -4,6 +4,7 @@ import Booking from "../models/Booking";
 import Payment from "../models/Payment";
 import { expirePendingPayments } from "../controllers/booking";
 import { authRequired } from "../middleware/auth";
+import { processVnpayCallback } from "../services/vnpayPayment";
 
 const router = express.Router();
 const moment = require('moment');
@@ -81,6 +82,12 @@ router.post('/create-url', authRequired, async function (req, res, next) {
         if (paymentKind === "balance" && booking.paymentStatus !== "deposit_paid") {
             return res.status(400).json({ message: "Chỉ có thể thanh toán phần còn lại cho đơn đã đặt cọc" });
         }
+        if (paymentKind !== "balance" && booking.paymentStatus !== "unpaid") {
+            return res.status(400).json({ message: "Đơn đã có giao dịch thanh toán, vui lòng chỉ thanh toán số tiền còn lại" });
+        }
+        if (paymentKind === "deposit" && booking.paymentMethod !== "deposit") {
+            return res.status(400).json({ message: "Đơn này không sử dụng hình thức đặt cọc" });
+        }
         const paymentCode = `${booking.id}_${paymentKind}_${Date.now()}`;
         const amount = expectedAmount;
         const bankCode = req.body.bankCode;
@@ -103,6 +110,7 @@ router.post('/create-url', authRequired, async function (req, res, next) {
         vnp_Params['vnp_ReturnUrl'] = returnUrl;
         vnp_Params['vnp_IpAddr'] = ipAddr;
         vnp_Params['vnp_CreateDate'] = createDate;
+        vnp_Params['vnp_ExpireDate'] = moment(booking.paymentExpiresAt || new Date(date.getTime() + 15 * 60 * 1000)).format('YYYYMMDDHHmmss');
         if (bankCode !== null && bankCode !== '' && bankCode !== undefined) {
             vnp_Params['vnp_BankCode'] = bankCode;
         }
@@ -139,61 +147,31 @@ router.post('/create-url', authRequired, async function (req, res, next) {
 
 router.get("/return", async (req, res) => {
     try {
-        const secureHash = String(req.query.vnp_SecureHash || "");
-        const vnp_Params = { ...req.query };
-        delete vnp_Params.vnp_SecureHash;
-        delete vnp_Params.vnp_SecureHashType;
-
-        const signData = qs.stringify(sortObject(vnp_Params), { encode: false });
-        const signed = crypto.createHmac("sha512", process.env.VNP_HASH_SECRET || "")
-            .update(Buffer.from(signData, "utf-8"))
-            .digest("hex");
-        const validSignature = secureHash.length === signed.length &&
-            crypto.timingSafeEqual(Buffer.from(secureHash), Buffer.from(signed));
-
-        const paymentCode = String(vnp_Params.vnp_TxnRef || "");
-        const actualOrderId = paymentCode.split("_")[0];
-        const rspCode = String(vnp_Params.vnp_ResponseCode || "99");
-        if (!validSignature) {
-            return res.json({ message: "Invalid Signature", code: "97" });
-        }
-
-        const booking = await Booking.findOne({ id: Number(actualOrderId) });
-        if (!booking) {
-            return res.status(404).json({ message: "Không tìm thấy đơn đặt sân", code: "01" });
-        }
-
-        const payment = await Payment.findOne({ paymentCode });
-        if (!payment) return res.status(404).json({ message: "Không tìm thấy giao dịch", code: "01" });
-        const successful = rspCode === "00";
-        const paidAmount = successful
-            ? Math.min(Number(booking.total), (Number(booking.paidAmount) || 0) + Number(payment.amount))
-            : Number(booking.paidAmount) || 0;
-        const fullyPaid = paidAmount >= Number(booking.total);
-        await Booking.updateOne(
-            { id: booking.id },
-            { $set: {
-                paidAmount,
-                paymentStatus: successful ? (fullyPaid ? "paid" : "deposit_paid") : booking.paymentStatus,
-                status: successful ? "confirmed" : booking.status,
-                paymentExpiresAt: successful ? null : booking.paymentExpiresAt,
-            } }
-        );
-        await Payment.findOneAndUpdate(
-            { paymentCode },
-            {
-                status: successful ? "success" : "failed",
-                transactionCode: String(vnp_Params.vnp_TransactionNo || ""),
-                bankCode: String(vnp_Params.vnp_BankCode || ""),
-                paidAt: successful ? new Date() : null,
-                rawData: vnp_Params,
-            },
-            { upsert: true, new: true }
-        );
-        return res.json({ message: successful ? "Success" : "Failed", code: rspCode, bookingId: actualOrderId });
+        const result = await processVnpayCallback(req.query);
+        return res.status(result.code === "01" ? 404 : 200).json(result);
     } catch (error) {
         console.error("VNPAY Return Error:", error);
-        return res.status(500).json({ message: error.message || "Internal Server Error", code: "99" });
+        return res.status(500).json({ message: error.message || "Internal Server Error", code: "99", state: "error" });
+    }
+});
+
+router.get("/ipn", async (req, res) => {
+    try {
+        const result = await processVnpayCallback(req.query);
+        const merchantCode = ["success", "failed", "refund_pending", "refunded"].includes(result.state) ? "00" : result.code;
+        const messageByCode = {
+            "00": "Confirm Success",
+            "01": "Order not found",
+            "04": "Invalid amount",
+            "97": "Invalid signature",
+        };
+        return res.status(200).json({
+            RspCode: merchantCode,
+            Message: messageByCode[merchantCode] || result.message || "Unknown error",
+        });
+    } catch (error) {
+        console.error("VNPAY IPN Error:", error);
+        return res.status(200).json({ RspCode: "99", Message: "Internal error" });
     }
 });
 

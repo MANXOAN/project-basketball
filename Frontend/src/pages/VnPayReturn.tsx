@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "react-router-dom";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, RotateCcw } from "lucide-react";
 import { api } from "../lib/api";
 
 export default function VnPayReturn() {
   const location = useLocation();
-  const [status, setStatus] = useState<"loading" | "success" | "failed">("loading");
+  const [status, setStatus] = useState<"loading" | "success" | "failed" | "refund_pending">("loading");
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -20,15 +20,19 @@ export default function VnPayReturn() {
       try {
         const res = await api.get("/vnpay/return" + location.search);
         setBookingId(res.data.bookingId);
-        if (res.data.code === "00") {
+        if (res.data.state === "refund_pending" || res.data.state === "refunded") {
+          setStatus("refund_pending");
+          setErrorMessage(res.data.message || "Khoản thanh toán đang được xử lý hoàn tiền");
+        } else if (res.data.code === "00" && res.data.state === "success") {
           setStatus("success");
         } else {
           setStatus("failed");
           setErrorMessage(res.data.message || "Giao dịch không thành công");
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const error = err as { response?: { data?: { message?: string } }; message?: string };
         setStatus("failed");
-        setErrorMessage(err.response?.data?.message || err.message || "Lỗi kết nối máy chủ");
+        setErrorMessage(error.response?.data?.message || error.message || "Lỗi kết nối máy chủ");
       }
     };
 
@@ -67,15 +71,15 @@ export default function VnPayReturn() {
           </>
         ) : (
           <>
-            <div className="w-20 h-20 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto mb-6 text-rose-400">
-              <XCircle className="w-10 h-10" />
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${status === "refund_pending" ? "bg-amber-500/10 border border-amber-500/30 text-amber-400" : "bg-rose-500/10 border border-rose-500/30 text-rose-400"}`}>
+              {status === "refund_pending" ? <RotateCcw className="w-10 h-10" /> : <XCircle className="w-10 h-10" />}
             </div>
-            <h2 className="text-3xl font-black text-white mb-2">Thanh Toán Chưa Hoàn Tất</h2>
+            <h2 className="text-3xl font-black text-white mb-2">{status === "refund_pending" ? "Đang Xử Lý Hoàn Tiền" : "Thanh Toán Chưa Hoàn Tất"}</h2>
             <p className="text-gray-400 text-sm mb-6 leading-relaxed">
-              Giao dịch bị hủy hoặc có sự cố xảy ra trong quá trình xử lý qua VNPay.
+              {status === "refund_pending" ? "Giao dịch đã trừ tiền nhưng đơn không thể nhận thêm khoản thanh toán. Hệ thống đã đưa khoản dư vào hàng chờ hoàn tiền." : "Giao dịch bị hủy hoặc có sự cố xảy ra trong quá trình xử lý qua VNPay."}
             </p>
             {errorMessage && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold p-3.5 rounded-xl mb-8">
+              <div className={`text-xs font-semibold p-3.5 rounded-xl mb-8 ${status === "refund_pending" ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"}`}>
                 Chi tiết: {errorMessage}
               </div>
             )}

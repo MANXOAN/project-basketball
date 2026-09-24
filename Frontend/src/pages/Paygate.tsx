@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
-import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Clock, ShieldCheck, Copy } from "lucide-react";
+import { QrCode, CheckCircle2, Loader2, ArrowLeft, CreditCard, Clock, ShieldCheck, Copy, AlertTriangle } from "lucide-react";
 import { formatCurrency, api } from "../lib/api";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -10,6 +10,8 @@ export default function Paygate() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<"card" | "transfer" | null>(null);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [returningToBooking, setReturningToBooking] = useState(false);
 
   const payload = location.state?.payload;
   const existingBooking = location.state?.booking;
@@ -133,12 +135,44 @@ export default function Paygate() {
     navigator.clipboard.writeText(text);
     toast.success(`Đã sao chép ${label}!`);
   };
+  const handleReturnToBooking = async () => {
+    if (isBalancePayment) {
+      navigate("/my-bookings", { replace: true });
+      return;
+    }
+
+    setReturningToBooking(true);
+    try {
+      if (existingBooking?.id && existingBooking.paymentStatus === "unpaid") {
+        await api.post(`/bookings/${existingBooking.id}/cancel`, {});
+      }
+      const draft = payload || booking;
+      const search = new URLSearchParams({
+        fieldId: String(draft.fieldId || ""),
+        courtId: String(draft.courtId || ""),
+        date: String(draft.date || ""),
+        time: String(draft.time || ""),
+      });
+      navigate(`/booking?${search.toString()}`, {
+        replace: true,
+        state: { bookingDraft: draft },
+      });
+    } catch (error: unknown) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message
+        : error instanceof Error
+          ? error.message
+          : undefined;
+      toast.error(message || "Không thể hủy giữ chỗ để quay lại chỉnh sửa");
+      setReturningToBooking(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black text-gray-200 py-12 px-4">
       <div className="max-w-xl mx-auto">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => setShowBackConfirm(true)}
           className="flex items-center text-sm font-semibold text-gray-400 hover:text-yellow-400 transition-colors mb-6 group"
         >
           <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" /> Quay lại đặt sân
@@ -313,6 +347,43 @@ export default function Paygate() {
           </div>
         </div>
       </div>
+      {showBackConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="back-to-booking-title">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-zinc-900 p-6 shadow-2xl">
+            <div className="mb-5 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 id="back-to-booking-title" className="text-xl font-black text-white">
+                  Quay lại chỉnh sửa đặt sân?
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-gray-400">
+                  Đơn giữ chỗ hiện tại sẽ được hủy và khung giờ được nhả ra. Thông tin đã nhập vẫn được giữ để bạn chỉnh sửa và đặt lại.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setShowBackConfirm(false)}
+                disabled={returningToBooking}
+                className="min-h-11 flex-1 rounded-xl border border-white/10 bg-black px-4 text-sm font-bold text-gray-300 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+              >
+                Tiếp tục thanh toán
+              </button>
+              <button
+                type="button"
+                onClick={handleReturnToBooking}
+                disabled={returningToBooking}
+                className="btn-primary min-h-11 flex-1 rounded-xl px-4 text-sm font-extrabold disabled:opacity-50"
+              >
+                {returningToBooking ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : "Hủy đơn và quay lại"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

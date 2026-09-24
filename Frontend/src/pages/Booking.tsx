@@ -14,6 +14,18 @@ const DURATIONS = [
   { label: "1.5 giờ", value: 1.5 },
   { label: "2 giờ", value: 2 },
 ];
+type BookingDraft = {
+  fieldId?: number;
+  courtId?: number;
+  date?: string;
+  recurringDates?: string[];
+  time?: string;
+  duration?: number;
+  customer?: { fullName?: string; phone?: string; note?: string };
+  services?: Array<{ name?: string; quantity?: number }>;
+  paymentMethod?: PaymentMethod;
+  voucherCode?: string;
+};
 
 type PaymentMethod = "deposit" | "full" | "cash";
 
@@ -24,6 +36,11 @@ const getEndTime = (startTime: string, dur: number): number => {
 
 export default function Booking() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const bookingDraft = (location.state as { bookingDraft?: BookingDraft } | null)?.bookingDraft;
+  const draftServiceQuantity = (name: string) => Number(
+    bookingDraft?.services?.find((service) => service.name === name)?.quantity || 0
+  );
   const [params] = useSearchParams();
   const fieldIdParam = params.get("fieldId");
   const courtIdParam = params.get("courtId");
@@ -33,33 +50,34 @@ export default function Booking() {
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [loadingData, setLoadingData] = useState(true);
-  const location = useLocation();
   const [success, setSuccess] = useState<null | { code: string; paymentMethod: string; checkinQrUrl?: string }>(null);
 
   const [field, setField] = useState<Field | null>(null);
   const [courts, setCourts] = useState<Court[]>([]);
   const [courtId, setCourtId] = useState<number | null>(
-    courtIdParam ? Number(courtIdParam) : null
+    bookingDraft?.courtId || (courtIdParam ? Number(courtIdParam) : null)
   );
-  const [date, setDate] = useState(dateParam || "");
-  const [time, setTime] = useState(timeParam || "");
-  const [duration, setDuration] = useState(1);
+  const [date, setDate] = useState(bookingDraft?.date || dateParam || "");
+  const [time, setTime] = useState(bookingDraft?.time || timeParam || "");
+  const [duration, setDuration] = useState(Number(bookingDraft?.duration || 1));
   const [customer, setCustomer] = useState({
-    fullName: getUser()?.fullName || "",
-    phone: getUser()?.phone || "",
-    note: "",
+    fullName: bookingDraft?.customer?.fullName || getUser()?.fullName || "",
+    phone: bookingDraft?.customer?.phone || getUser()?.phone || "",
+    note: bookingDraft?.customer?.note || "",
   });
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(bookingDraft?.paymentMethod || null);
   const [paymentError, setPaymentError] = useState("");
   const [bookedSlots, setBookedSlots] = useState<Awaited<ReturnType<typeof getBookedSlots>>>([]);
 
-  const [endDate, setEndDate] = useState("");
+  const [endDate, setEndDate] = useState(
+    bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : ""
+  );
   
   // State dịch vụ đi kèm
-  const [balls, setBalls] = useState(0);
-  const [bibs, setBibs] = useState(0);
-  const [water, setWater] = useState(0);         // Nước lọc
-  const [mineralWater, setMineralWater] = useState(0); // Nước muối khoáng
+  const [balls, setBalls] = useState(draftServiceQuantity("Bóng rổ"));
+  const [bibs, setBibs] = useState(draftServiceQuantity("Áo pitch"));
+  const [water, setWater] = useState(draftServiceQuantity("Nước lọc"));
+  const [mineralWater, setMineralWater] = useState(draftServiceQuantity("Nước muối khoáng"));
 
   const closingTime = Number((field?.closeTime || "22:00").split(":")[0]);
   const timeSlots = useMemo(() => {
@@ -106,7 +124,7 @@ export default function Booking() {
   // Tính tổng tiền các dịch vụ phát sinh
   const servicesTotal = (balls * 20000) + (bibs * 10000) + (water * 10000) + (mineralWater * 15000);
 
-  const [voucherCode, setVoucherCode] = useState("");
+  const [voucherCode, setVoucherCode] = useState(bookingDraft?.voucherCode || "");
   const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discountAmount: number; voucherId: number } | null>(null);
   const [voucherLoading, setVoucherLoading] = useState(false);
 
@@ -126,7 +144,7 @@ export default function Booking() {
         setField(fRes.data);
         setCourts(activeCourts);
         setCourtId(nextCourtId);
-        setTime("");
+        setTime(bookingDraft?.time || timeParam || "");
       } catch {
         setField(null);
         setCourts([]);
@@ -137,7 +155,7 @@ export default function Booking() {
         setLoadingData(false);
       }
     })();
-  }, [fieldIdParam, courtIdParam]);
+  }, [fieldIdParam, courtIdParam, bookingDraft?.time, timeParam]);
 
   const selectedCourt = courts.find((c) => c.id === courtId);
 

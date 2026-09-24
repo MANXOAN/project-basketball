@@ -376,7 +376,7 @@ export default function MyBookings() {
                       </div>
                     </div>
 
-                    {b.status === "cancelled" && (
+                    {(b.status === "cancelled" || b.refundStatus === "pending" || b.refundStatus === "completed") && (
                       <div
                         className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${
                           b.refundStatus === "completed"
@@ -388,10 +388,10 @@ export default function MyBookings() {
                         role="status"
                       >
                         {b.refundStatus === "pending" && (
-                          <><strong>Đang hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> Yêu cầu đã được gửi tới quản trị viên.</>
+                          <><strong>Đang hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Khoản thanh toán dư/quá hạn không được cộng vào đơn sân hợp lệ." : "Yêu cầu đã được gửi tới quản trị viên."}</>
                         )}
                         {b.refundStatus === "completed" && (
-                          <><strong>Đã hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> Ngân hàng: {b.refundBank || "—"} · STK: {b.refundStk || "—"}</>
+                          <><strong>Đã hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Đơn sân chính vẫn giữ nguyên hiệu lực." : `Ngân hàng: ${b.refundBank || "—"} · STK: ${b.refundStk || "—"}`}</>
                         )}
                         {(!b.refundStatus || b.refundStatus === "none") && (
                           <><strong>Đã hủy đơn.</strong> Đơn chưa phát sinh thanh toán nên không cần hoàn tiền.</>

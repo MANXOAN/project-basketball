@@ -233,8 +233,17 @@ export default function AdminBookings() {
             <div className="min-w-[190px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               <div className="font-bold">Đang chờ hoàn {formatCurrency(r.refundAmount || 0)}</div>
               <div className="mt-1.5 space-y-0.5 text-amber-800">
-                <div><span className="font-semibold">Ngân hàng:</span> {r.refundBank || "Chưa có"}</div>
-                <div><span className="font-semibold">STK:</span> {r.refundStk || "Chưa có"}</div>
+                {r.refundReason === "duplicate_or_expired_payment" ? (
+                  <>
+                    <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || "vnpay").toUpperCase()}</div>
+                    <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || "Đang cập nhật"}</div>
+                  </>
+                ) : (
+                  <>
+                    <div><span className="font-semibold">Ngân hàng:</span> {r.refundBank || "Chưa có"}</div>
+                    <div><span className="font-semibold">STK:</span> {r.refundStk || "Chưa có"}</div>
+                  </>
+                )}
               </div>
             </div>
           );
@@ -259,7 +268,7 @@ export default function AdminBookings() {
       key: "actions",
       render: (_: unknown, r: Booking & { refundStk?: string }) => (
         <div className="flex flex-col gap-2">
-          {r.status === "cancelled" && r.refundStatus === "pending" && (
+          {r.refundStatus === "pending" && (
             <Button size="small" danger type="primary" ghost className="font-semibold shadow-sm w-full text-xs" onClick={() => setRefundModalBooking(r)}>
               Xử lý hoàn tiền
             </Button>
@@ -444,16 +453,28 @@ export default function AdminBookings() {
             </div>
 
             <div className="space-y-4 bg-white px-7 py-6">
-              <p className="text-sm leading-6 text-slate-600">Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</p>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-950"><UserRound size={16} className="text-amber-600" /> Người nhận hoàn tiền</div>
-                <div className="space-y-3 text-sm">
-                  <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Khách hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.customer?.fullName || "—"}</div></div>
-                  <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Ngân hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.refundBank || "Chưa cung cấp"}</div></div>
-                  <div className="flex items-end justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Số tài khoản</div><div className="mt-0.5 font-mono text-base font-black text-slate-950">{refundModalBooking.refundStk || "Chưa cung cấp"}</div></div><button type="button" onClick={() => copyRefundValue(refundModalBooking.refundStk || "", "số tài khoản")} disabled={!refundModalBooking.refundStk} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy size={14} /> Sao chép</button></div>
-                  <div className="flex items-end justify-between gap-3 border-t border-slate-200 pt-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Nội dung chuyển khoản</div><div className="mt-0.5 font-mono font-black text-slate-950">HOAN BK{String(refundModalBooking.id).padStart(6, "0")}</div></div><button type="button" onClick={() => copyRefundValue(`HOAN BK${String(refundModalBooking.id).padStart(6, "0")}`, "nội dung chuyển khoản")} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Copy size={14} /> Sao chép</button></div>
+              <p className="text-sm leading-6 text-slate-600">
+                {refundModalBooking.refundReason === "duplicate_or_expired_payment"
+                  ? "Thực hiện hoàn tiền theo giao dịch gốc trên cổng thanh toán, sau đó xác nhận kết quả cho khách."
+                  : <>Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</>}
+              </p>
+              {refundModalBooking.refundReason === "duplicate_or_expired_payment" ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div>Khách hàng: <strong>{refundModalBooking.customer?.fullName || "—"}</strong></div>
+                  <div className="mt-2">Cổng: <strong>{(refundModalBooking.refundGateway || "vnpay").toUpperCase()}</strong></div>
+                  <div className="mt-2">Mã giao dịch: <strong className="font-mono">{refundModalBooking.refundTransactionCode || "Đang cập nhật"}</strong></div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-950"><UserRound size={16} className="text-amber-600" /> Người nhận hoàn tiền</div>
+                  <div className="space-y-3 text-sm">
+                    <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Khách hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.customer?.fullName || "—"}</div></div>
+                    <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Ngân hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.refundBank || "Chưa cung cấp"}</div></div>
+                    <div className="flex items-end justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Số tài khoản</div><div className="mt-0.5 font-mono text-base font-black text-slate-950">{refundModalBooking.refundStk || "Chưa cung cấp"}</div></div><button type="button" onClick={() => copyRefundValue(refundModalBooking.refundStk || "", "số tài khoản")} disabled={!refundModalBooking.refundStk} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy size={14} /> Sao chép</button></div>
+                    <div className="flex items-end justify-between gap-3 border-t border-slate-200 pt-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Nội dung chuyển khoản</div><div className="mt-0.5 font-mono font-black text-slate-950">HOAN BK{String(refundModalBooking.id).padStart(6, "0")}</div></div><button type="button" onClick={() => copyRefundValue(`HOAN BK${String(refundModalBooking.id).padStart(6, "0")}`, "nội dung chuyển khoản")} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Copy size={14} /> Sao chép</button></div>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setRefundModalBooking(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Quay lại</button>
                 <button type="button" onClick={() => completeRefund(refundModalBooking)} className="min-h-11 flex-1 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500">Xác nhận đã chuyển tiền</button>

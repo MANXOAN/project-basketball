@@ -6,7 +6,8 @@
     "dev": "nodemon --exec babel-node src/bootstrap.js",
     "start": "babel-node src/bootstrap.js",
     "seed": "babel-node src/seed.js",
-    "test:rbac": "babel-node src/tests/rbac.test.js"
+    "test:rbac": "babel-node src/tests/rbac.test.js",
+    "test:payment": "babel-node src/tests/payment-flow.test.js"
   },
   "keywords": [],
   "author": "",

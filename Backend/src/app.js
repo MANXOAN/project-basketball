@@ -12,6 +12,7 @@ import bookingRouter from "./routes/booking";
 import voucherRouter from "./routes/voucher";
 import vnpayRouter from "./routes/vnpay";
 import newsRouter from "./routes/news";
+import { expirePendingPayments } from "./controllers/booking";
 import notificationRouter from "./routes/notification";
 
 const app = express();
@@ -67,6 +68,13 @@ connectDB(MONGODB_URI)
       await runSeed(false);
       console.log("Memory DB automatically seeded!");
     }
+    await expirePendingPayments();
+    const paymentExpiryTimer = setInterval(() => {
+      expirePendingPayments().catch((error) => {
+        console.error("Payment expiry sweep failed:", error.message);
+      });
+    }, 30_000);
+    paymentExpiryTimer.unref();
     app.listen(PORT, () => {
       console.log(`Server running at http://localhost:${PORT}`);
     });

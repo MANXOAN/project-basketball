@@ -119,6 +119,9 @@ export type Booking = {
   refundStatus?: "none" | "pending" | "completed";
   refundStk?: string;
   refundBank?: string;
+  refundReason?: string;
+  refundTransactionCode?: string;
+  refundGateway?: string;
   cancellationReason?: string;
   status: string;
   createdAt: string;

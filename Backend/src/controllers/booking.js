@@ -197,10 +197,21 @@ export async function getBookingDetail(req, res) {
 export async function getRefundRequests(_req, res) {
   try {
     const list = await Booking.find({
-      status: "cancelled",
       refundStatus: { $in: ["pending", "completed"] },
     }).sort({ updatedAt: -1, id: -1 });
-    return res.json(serializeMany(list));
+    const duplicatePayments = await Payment.find({
+      bookingId: { $in: list.map((booking) => booking.id) },
+      status: { $in: ["refund_pending", "refunded"] },
+    }).sort({ createdAt: -1 });
+    const paymentByBooking = new Map();
+    duplicatePayments.forEach((payment) => {
+      if (!paymentByBooking.has(payment.bookingId)) paymentByBooking.set(payment.bookingId, payment);
+    });
+    const data = serializeMany(list).map((booking) => {
+      const payment = paymentByBooking.get(booking.id);
+      return payment ? { ...booking, refundTransactionCode: payment.transactionCode || payment.paymentCode, refundGateway: payment.gateway } : booking;
+    });
+    return res.json(data);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -465,17 +476,30 @@ export async function completeRefund(req, res) {
     const id = Number(req.params.id);
     const booking = await Booking.findOne({ id });
     if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
-    if (booking.status !== "cancelled" || booking.refundStatus !== "pending") {
+    const isDuplicatePaymentRefund = booking.refundReason === "duplicate_or_expired_payment";
+    if (booking.refundStatus !== "pending" ||
+        (booking.status !== "cancelled" && !isDuplicatePaymentRefund)) {
       return res.status(400).json({ message: "Đơn không có yêu cầu hoàn tiền đang chờ" });
     }
     const updated = await Booking.findOneAndUpdate(
-      { id }, { $set: { refundStatus: "completed", paymentStatus: "refunded" } }, { new: true }
+      { id },
+      { $set: {
+        refundStatus: "completed",
+        ...(booking.status === "cancelled" ? { paymentStatus: "refunded" } : {}),
+      } },
+      { new: true }
     );
     await Payment.findOneAndUpdate(
       { paymentCode: `REFUND_${id}` },
       { bookingId: id, paymentCode: `REFUND_${id}`, paymentKind: "refund", gateway: "manual", amount: updated.refundAmount, status: "success", paidAt: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    if (isDuplicatePaymentRefund) {
+      await Payment.updateMany(
+        { bookingId: id, status: "refund_pending" },
+        { $set: { status: "refunded" } }
+      );
+    }
     const notificationId = await nextId("notifications");
     await Notification.findOneAndUpdate(
       { bookingId: id, type: "refund_completed" },
