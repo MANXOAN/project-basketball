@@ -12,6 +12,9 @@ const bookingGroupSchema = new mongoose.Schema(
     status: { type: String, enum: ["pending", "confirmed", "cancelled", "completed"], default: "pending" },
     paymentExpiresAt: { type: Date, default: null },
     userId: { type: Number, default: null, index: true },
+    voucherCode: { type: String, default: "" },
+    voucherClaimed: { type: Boolean, default: false },
+    voucherUsageReleased: { type: Boolean, default: false },
   },
   { timestamps: true, versionKey: false }
 );

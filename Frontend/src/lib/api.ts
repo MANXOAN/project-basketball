@@ -131,7 +131,19 @@ export type Booking = {
   refundBank?: string;
   refundReason?: string;
   refundTransactionCode?: string;
+  refundPaymentCode?: string;
   refundGateway?: string;
+  refundBankCode?: string;
+  refundPayments?: Array<{
+    paymentCode: string;
+    transactionCode?: string;
+    gateway: string;
+    bankCode?: string;
+    amount: number;
+    paymentKind: string;
+    paidAt?: string | null;
+  }>;
+  cancelledBookingIds?: number[];
   cancellationReason?: string;
   cancelledByRole?: string;
   status: string;

@@ -45,6 +45,13 @@ function getBookingStartMs(booking: Booking) {
   return new Date(`${normalizedDate}T${time}:00`).getTime();
 }
 
+function newestBookingFirst(a: Booking, b: Booking) {
+  const aCreatedAt = Date.parse(a.createdAt || "");
+  const bCreatedAt = Date.parse(b.createdAt || "");
+  if (Number.isFinite(aCreatedAt) && Number.isFinite(bCreatedAt) && aCreatedAt !== bCreatedAt) return bCreatedAt - aCreatedAt;
+  return Number(b.id) - Number(a.id);
+}
+
 function customerRefundPreview(booking: Booking) {
   const paidAmount = Number(booking.paidAmount) > 0
     ? Number(booking.paidAmount)
@@ -147,7 +154,7 @@ export default function MyBookings() {
             );
           }
         )
-        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        .sort(newestBookingFirst);
       setBookings(mine);
     } catch {
       toast.error("Không tải được đơn đặt sân");
@@ -207,19 +214,30 @@ export default function MyBookings() {
       return;
     }
     try {
-      const response = await api.post<Booking>(`/bookings/${cancelModal.bookingId}/cancel`, {
+      const response = await api.post<Booking & { cancelledBookingIds?: number[] }>("/bookings/" + cancelModal.bookingId + "/cancel", {
         refundStk: cancelModal.stk,
         refundBank: cancelModal.bank,
       });
-      setBookings((prev) =>
-        prev.map((b) => (b.id === cancelModal.bookingId ? response.data : b))
-      );
+      const cancelledIds = new Set(response.data.cancelledBookingIds || [cancelModal.bookingId]);
+      setBookings((prev) => prev.map((booking) => cancelledIds.has(booking.id)
+        ? {
+          ...booking,
+          status: "cancelled",
+          refundAmount: response.data.refundAmount,
+          refundRate: response.data.refundRate,
+          refundStatus: response.data.refundStatus,
+          refundReason: response.data.refundReason,
+          refundBank: response.data.refundBank,
+          refundStk: response.data.refundStk,
+        }
+        : booking));
       toast.success(
         Number(response.data.refundAmount || 0) > 0
           ? "Đã hủy đơn, yêu cầu hoàn " + response.data.refundRate + "% đang được xử lý"
           : "Đã hủy đơn và nhả lại khung giờ; trường hợp này không phát sinh hoàn tiền"
       );
       setCancelModal({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 });
+      await load();
     } catch (error: unknown) {
       const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(message || "Hủy thất bại");

@@ -1,3 +1,4 @@
+import { QRCode } from "antd";
 import { CalendarDays, CalendarPlus, Clock3, Copy, CreditCard, MapPin, Printer, ShieldCheck, UserRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { Booking, formatCurrency, formatSlotRange } from "../lib/api";
@@ -18,7 +19,6 @@ function toIcsDate(value: Date) {
 
 export default function BookingPass({ booking, code = `BK${String(booking.id).padStart(6, "0")}` }: Props) {
   const qrContent = `CHECKIN-${code}|${booking.fieldName}|${booking.court}|${booking.date}|${booking.time}`;
-  const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrContent)}&size=280`;
 
   const copyCode = async () => {
     await navigator.clipboard.writeText(code);
@@ -149,8 +149,9 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
         </div>
 
         <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-3 text-center sm:w-44">
-          <img src={qrUrl} alt={`Mã QR check-in cho đơn ${code}`} className="aspect-square w-36 object-contain" />
+          <QRCode type="svg" value={qrContent} size={144} bordered={false} aria-label={"Mã QR check-in cho đơn " + code} />
           <div className="mt-1 text-[10px] font-black uppercase tracking-widest text-zinc-700">Quét để check-in</div>
+          <div className="mt-1 max-w-36 break-all font-mono text-[9px] leading-3 text-zinc-500">{qrContent}</div>
         </div>
       </div>
 

@@ -38,11 +38,16 @@ export default function AdminBookings() {
 
   const fetchBookings = useCallback(async () => {
     try {
-      const res = await api.get<Booking[]>("/bookings");
-      setBookings([...res.data].reverse());
-      api.get<Booking[]>("/bookings/refunds")
-        .then((refunds) => setRefundRequests(refunds.data))
-        .catch(() => setRefundRequests([]));
+      const [res, refundResult] = await Promise.all([
+        api.get<Booking[]>("/bookings"),
+        api.get<Booking[]>("/bookings/refunds").catch(() => ({ data: [] as Booking[] })),
+      ]);
+      const refunds = refundResult.data;
+      const refundByBookingId = new Map(refunds.map((booking) => [booking.id, booking]));
+      setBookings(res.data
+        .map((booking) => ({ ...booking, ...(refundByBookingId.get(booking.id) || {}) }))
+        .sort((a, b) => Number(b.id) - Number(a.id)));
+      setRefundRequests(refunds);
     } catch {
       setBookings([]);
       message.error("Không tải được danh sách đơn đặt sân.");
@@ -173,11 +178,10 @@ export default function AdminBookings() {
 
   const markCheckIn = async (id: number) => {
     try {
-      await api.post(`/bookings/${id}/check-in`);
+      const response = await api.post<Booking>("/bookings/" + id + "/check-in");
       message.success("Khách đã Check-in (Hoàn thành đơn)");
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: "completed" } : b))
-      );
+      setBookings((prev) => prev.map((booking) => booking.id === id ? { ...booking, ...response.data } : booking));
+      setTicketBooking((current) => current?.id === id ? { ...current, ...response.data } : current);
     } catch {
       message.error("Lỗi khi Check-in");
     }
@@ -190,25 +194,18 @@ export default function AdminBookings() {
       message.error("Mã QR không hợp lệ. Vui lòng quét lại.");
       return;
     }
-    const id = Number(match[1]);
-    const current = bookings.find(b => b.id === id);
-    if (!current) {
-      message.error("Không tìm thấy mã đơn này trong hệ thống.");
-      return;
+    try {
+      const response = await api.get<Booking>("/bookings/" + Number(match[1]) + "/detail");
+      const booking = response.data;
+      if (booking.status === "completed") message.warning("Đơn này đã được check-in trước đó.");
+      else if (booking.status === "cancelled") message.error("Đơn này đã bị hủy, không thể check-in.");
+      else message.success("Đã tìm thấy đơn. Vui lòng đối chiếu thông tin trước khi check-in.");
+      setTicketBooking(booking);
+    } catch (error: unknown) {
+      const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      message.error(errorMessage || "Không tìm thấy mã đơn này trong hệ thống.");
     }
-
-    if (current.status === "completed") {
-      message.warning("Đơn này đã được Check-in trước đó rồi.");
-      return;
-    }
-    if (current.status === "cancelled") {
-      message.error("Đơn này đã bị hủy, không thể Check-in.");
-      return;
-    }
-    await markCheckIn(id);
   };
-
-
 
   const columns = [
     {
@@ -289,7 +286,8 @@ export default function AdminBookings() {
                 ) : ["owner_cancelled", "maintenance"].includes(r.refundReason || "") ? (
                   <>
                     <div><span className="font-semibold">Lý do:</span> {r.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy"}</div>
-                    <div><span className="font-semibold">Hoàn:</span> Phương thức thanh toán gốc</div>
+                    <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || (r.paymentMethod === "cash" ? "tiền mặt" : "chưa xác định")).toUpperCase()}</div>
+                    <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || r.refundPaymentCode || "Chưa có giao dịch điện tử"}</div>
                   </>
                 ) : (
                   <>
@@ -503,6 +501,11 @@ export default function AdminBookings() {
         {ticketBooking && (
           <div className="py-6">
             <BookingPass booking={ticketBooking} />
+            {ticketBooking.status === "confirmed" && (
+              <button type="button" onClick={() => markCheckIn(ticketBooking.id)} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500">
+                Xác nhận thông tin đúng & Check-in
+              </button>
+            )}
             <button type="button" onClick={() => setTicketBooking(null)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:border-amber-400 hover:bg-amber-50">
               Đóng vé
             </button>
@@ -583,16 +586,22 @@ export default function AdminBookings() {
               {["duplicate_or_expired_payment", "owner_cancelled", "maintenance"].includes(refundModalBooking.refundReason || "") ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <div>Khách hàng: <strong>{refundModalBooking.customer?.fullName || "—"}</strong></div>
-                  {refundModalBooking.refundReason === "duplicate_or_expired_payment" ? (
-                    <>
-                      <div className="mt-2">Cổng: <strong>{(refundModalBooking.refundGateway || "vnpay").toUpperCase()}</strong></div>
-                      <div className="mt-2">Mã giao dịch: <strong className="font-mono">{refundModalBooking.refundTransactionCode || "Đang cập nhật"}</strong></div>
-                    </>
+                  <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "duplicate_or_expired_payment" ? "Thanh toán dư hoặc quá hạn" : refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy lịch"}</strong></div>
+                  {refundModalBooking.refundPayments?.length ? (
+                    <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+                      {refundModalBooking.refundPayments.map((payment) => (
+                        <div key={payment.paymentCode} className="rounded-xl bg-white/70 p-3">
+                          <div><span className="font-semibold">Cổng:</span> {(payment.gateway || "chưa xác định").toUpperCase()} {payment.bankCode ? "· " + payment.bankCode : ""}</div>
+                          <div className="mt-1"><span className="font-semibold">Mã giao dịch:</span> <strong className="font-mono">{payment.transactionCode || "Chưa có"}</strong></div>
+                          <div className="mt-1"><span className="font-semibold">Mã thanh toán:</span> <strong className="font-mono">{payment.paymentCode}</strong></div>
+                          <div className="mt-1"><span className="font-semibold">Số tiền gốc:</span> {formatCurrency(payment.amount)}</div>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <>
-                      <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy lịch"}</strong></div>
-                      <div className="mt-2">Hoàn tiền: <strong>Phương thức thanh toán ban đầu</strong></div>
-                    </>
+                    <div className="mt-3 rounded-xl border border-amber-300 bg-white/70 p-3">
+                      Không tìm thấy giao dịch điện tử. Phương thức: <strong>{refundModalBooking.paymentMethod === "cash" ? "Tiền mặt tại sân" : refundModalBooking.paymentMethod}</strong> · SĐT khách: <strong>{refundModalBooking.customer?.phone || "—"}</strong>
+                    </div>
                   )}
                 </div>
               ) : (

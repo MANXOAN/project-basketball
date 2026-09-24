@@ -9,10 +9,12 @@ import Field from "../models/Field";
 import Court from "../models/Court";
 import Payment from "../models/Payment";
 import BookingSlot from "../models/BookingSlot";
-import { cancelBooking, completeRefund, createBooking, expirePendingPayments, getBookingDetail } from "../controllers/booking";
+import Voucher from "../models/Voucher";
+import { cancelBooking, completeRefund, createBooking, expirePendingPayments, getBookingDetail, getRefundRequests } from "../controllers/booking";
 import { processVnpayCallback } from "../services/vnpayPayment";
 import { buildPaymentConfirmationEmail } from "../utils/bookingEmail";
 import { setCounter } from "../utils/ids";
+import { createVoucher, validateVoucher } from "../controllers/voucher";
 
 function signedQuery(paymentCode, amount, transactionNo) {
   const params = {
@@ -244,6 +246,7 @@ async function run() {
     }, cancelResponse.res);
     assert.equal(cancelResponse.result.statusCode, 200);
     assert.equal(cancelResponse.result.body.cancelledGroupSize, 2);
+    assert.deepEqual(cancelResponse.result.body.cancelledBookingIds.sort((a, b) => a - b), cancellableResponse.result.body.bookingIds.sort((a, b) => a - b));
     assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: cancellableResponse.result.body.bookingIds } }), 0);
     assert.equal((await BookingGroup.findOne({ id: cancellableResponse.result.body.bookingGroupId })).status, "cancelled");
 
@@ -281,6 +284,68 @@ async function run() {
     );
     assert.equal(duplicateGroupPayment.state, "refund_pending");
 
+    const createVoucherResponse = responseRecorder();
+    await createVoucher({ body: { code: " step6_10 ", type: "percent", discount: 10, limit: 2, status: "active", startsAt: "2020-01-01T00:00:00.000Z", endsAt: "2031-12-31T23:59:59.999Z" } }, createVoucherResponse.res);
+    assert.equal(createVoucherResponse.result.statusCode, 201);
+    assert.equal(createVoucherResponse.result.body.code, "STEP6_10");
+
+    const duplicateVoucherResponse = responseRecorder();
+    await createVoucher({ body: { code: "step6_10", type: "percent", discount: 10, limit: 2, status: "active" } }, duplicateVoucherResponse.res);
+    assert.equal(duplicateVoucherResponse.result.statusCode, 409);
+
+    const invalidVoucherResponse = responseRecorder();
+    await createVoucher({ body: { code: "BAD_PERCENT", type: "percent", discount: 101, limit: 1, status: "active" } }, invalidVoucherResponse.res);
+    assert.equal(invalidVoucherResponse.result.statusCode, 400);
+
+    const validateVoucherResponse = responseRecorder();
+    await validateVoucher({ body: { code: "step6_10", subtotal: 300000 } }, validateVoucherResponse.res);
+    assert.equal(validateVoucherResponse.result.statusCode, 200);
+    assert.equal(validateVoucherResponse.result.body.discountAmount, 30000);
+
+    await Voucher.create({ id: 99, code: "EXPIRED", type: "fixed", discount: 20000, limit: 10, used: 0, status: "active", endsAt: new Date(Date.now() - 60000) });
+    const expiredVoucherResponse = responseRecorder();
+    await validateVoucher({ body: { code: "expired", subtotal: 100000 } }, expiredVoucherResponse.res);
+    assert.equal(expiredVoucherResponse.result.statusCode, 400);
+    assert.equal(expiredVoucherResponse.result.body.message, "Mã khuyến mãi đã hết hạn");
+
+    const voucherBookingResponse = responseRecorder();
+    await createBooking({
+      user: { id: 71, email: "voucher@example.com", fullName: "Khách voucher", role: "user" },
+      body: { fieldId: 10, courtId: 11, date: "2030-04-07", time: "12:00", duration: 1, customer: { fullName: "Khách voucher", phone: "0944444444" }, services: [], paymentMethod: "cash", voucherCode: "step6_10", total: 1 },
+    }, voucherBookingResponse.res);
+    assert.equal(voucherBookingResponse.result.statusCode, 201);
+    assert.equal(voucherBookingResponse.result.body.groupTotal, 90000);
+    assert.equal(voucherBookingResponse.result.body.discount, 10000);
+    assert.equal((await Voucher.findOne({ code: "STEP6_10" })).used, 1);
+
+    const cancelVoucherBookingResponse = responseRecorder();
+    await cancelBooking({ user: { id: 71, role: "user" }, params: { id: String(voucherBookingResponse.result.body.id) }, body: {} }, cancelVoucherBookingResponse.res);
+    assert.equal(cancelVoucherBookingResponse.result.statusCode, 200);
+    assert.equal((await Voucher.findOne({ code: "STEP6_10" })).used, 0);
+
+    const expiringVoucherBookingResponse = responseRecorder();
+    await createBooking({
+      user: { id: 71, email: "voucher@example.com", fullName: "Khách voucher", role: "user" },
+      body: { fieldId: 10, courtId: 11, date: "2030-04-08", time: "13:00", duration: 1, customer: { fullName: "Khách voucher", phone: "0944444444" }, services: [], paymentMethod: "full", voucherCode: "STEP6_10" },
+    }, expiringVoucherBookingResponse.res);
+    assert.equal(expiringVoucherBookingResponse.result.statusCode, 201);
+    await Booking.updateMany({ bookingGroupId: expiringVoucherBookingResponse.result.body.bookingGroupId }, { $set: { paymentExpiresAt: new Date(Date.now() - 1000) } });
+    await expirePendingPayments();
+    await expirePendingPayments();
+    assert.equal((await Voucher.findOne({ code: "STEP6_10" })).used, 0);
+
+    await Voucher.create({ id: 100, code: "FREE100", type: "percent", discount: 100, limit: 1, used: 0, status: "active" });
+    const freeVoucherBookingResponse = responseRecorder();
+    await createBooking({
+      user: { id: 72, email: "free@example.com", fullName: "Khách miễn phí", role: "user" },
+      body: { fieldId: 10, courtId: 11, date: "2030-04-09", time: "14:00", duration: 1, customer: { fullName: "Khách miễn phí", phone: "0933333333" }, services: [], paymentMethod: "full", voucherCode: "free100" },
+    }, freeVoucherBookingResponse.res);
+    assert.equal(freeVoucherBookingResponse.result.statusCode, 201);
+    assert.equal(freeVoucherBookingResponse.result.body.groupTotal, 0);
+    assert.equal(freeVoucherBookingResponse.result.body.paymentStatus, "paid");
+    assert.equal(freeVoucherBookingResponse.result.body.status, "confirmed");
+    assert.equal(freeVoucherBookingResponse.result.body.paymentExpiresAt, null);
+
     const cancellationCases = [
       { id: 300, offsetMinutes: 181, role: "user", expectedAmount: 100000, expectedRate: 100, expectedReason: "customer_early_100", body: { refundBank: "VCB", refundStk: "001" } },
       { id: 301, offsetMinutes: 61, role: "user", expectedAmount: 50000, expectedRate: 50, expectedReason: "customer_late_50", body: { refundBank: "VCB", refundStk: "002", cancellationType: "maintenance" } },
@@ -296,6 +361,9 @@ async function run() {
         paymentMethod: "full", paymentStatus: "paid", status: "confirmed",
       });
       await BookingSlot.create({ bookingId: testCase.id, courtId: 11, date: schedule.date, time: schedule.time });
+      if (testCase.id === 303) {
+        await Payment.create({ bookingId: 303, paymentCode: "303_full_original", transactionCode: "TXN303", gateway: "vnpay", bankCode: "NCB", paymentKind: "full", amount: 100000, status: "success", paidAt: new Date() });
+      }
       const cancelPolicyResponse = responseRecorder();
       await cancelBooking({
         user: { id: testCase.role === "user" ? 70 : 900, role: testCase.role },
@@ -309,6 +377,14 @@ async function run() {
       assert.equal(cancelPolicyResponse.result.body.refundStatus, testCase.expectedAmount > 0 ? "pending" : "none");
       assert.equal(await BookingSlot.countDocuments({ bookingId: testCase.id }), 0);
     }
+
+    const refundRequestsResponse = responseRecorder();
+    await getRefundRequests({}, refundRequestsResponse.res);
+    const operationalRefund = refundRequestsResponse.result.body.find((booking) => booking.id === 303);
+    assert.equal(operationalRefund.refundTransactionCode, "TXN303");
+    assert.equal(operationalRefund.refundPaymentCode, "303_full_original");
+    assert.equal(operationalRefund.refundGateway, "vnpay");
+    assert.equal(operationalRefund.refundPayments[0].amount, 100000);
 
     const partialRefundResponse = responseRecorder();
     await completeRefund({ params: { id: "301" } }, partialRefundResponse.res);

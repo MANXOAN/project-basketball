@@ -178,7 +178,7 @@ export default function Booking() {
   const servicesTotal = (balls * 20000) + (bibs * 10000) + (water * 10000) + (mineralWater * 15000);
 
   const [voucherCode, setVoucherCode] = useState(bookingDraft?.voucherCode || "");
-  const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discountAmount: number; voucherId: number } | null>(null);
+  const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discountAmount: number; validatedSubtotal: number } | null>(null);
   const [voucherLoading, setVoucherLoading] = useState(false);
 
   useEffect(() => {
@@ -271,7 +271,13 @@ export default function Booking() {
     ? courts.reduce((sum, court) => sum + Number(court.price || 0), 0)
     : selectedCourt?.price ?? field?.pricePerHour ?? 0;
   const subTotal = courtPrice * duration * scheduledOccurrences.length + servicesTotal;
-  const discount = appliedVoucher?.discountAmount || 0;
+  const normalizedVoucherInput = voucherCode.trim().toUpperCase();
+  const activeVoucher = appliedVoucher &&
+    normalizedVoucherInput === appliedVoucher.code &&
+    appliedVoucher.validatedSubtotal === subTotal
+    ? appliedVoucher
+    : null;
+  const discount = activeVoucher?.discountAmount || 0;
   const total = Math.max(0, subTotal - discount);
   const deposit = Math.round(total * 0.3);
 
@@ -282,40 +288,21 @@ export default function Booking() {
     }
     setVoucherLoading(true);
     try {
-      const res = await api.get(`/vouchers?code=${voucherCode.trim()}`);
-      if (!res.data || res.data.length === 0) {
-        toast.error("Mã khuyến mãi không tồn tại!");
-        setVoucherLoading(false);
-        return;
-      }
-
-      const voucher = res.data[0];
-      if (voucher.status !== "active") {
-        toast.error("Mã khuyến mãi chưa được kích hoạt!");
-        setVoucherLoading(false);
-        return;
-      }
-
-      if (Number(voucher.used) >= Number(voucher.limit)) {
-        toast.error("Mã khuyến mãi đã hết lượt sử dụng!");
-        setVoucherLoading(false);
-        return;
-      }
-
-      let discountAmount = voucher.type === "percent"
-        ? Math.round((subTotal * Number(voucher.discount)) / 100)
-        : Number(voucher.discount);
-      discountAmount = Math.min(discountAmount, subTotal);
-
-      setAppliedVoucher({
-        code: voucher.code,
-        discountAmount,
-        voucherId: voucher.id,
+      const res = await api.post<{ code: string; type: "percent" | "fixed"; discountAmount: number }>("/vouchers/validate", {
+        code: voucherCode.trim(),
+        subtotal: subTotal,
       });
-
-      toast.success(`Đã áp dụng mã ${voucher.code}: Giảm ${formatCurrency(discountAmount)}`);
-    } catch {
-      toast.error("Lỗi khi kiểm tra mã khuyến mãi");
+      setAppliedVoucher({
+        code: res.data.code,
+        discountAmount: Number(res.data.discountAmount),
+        validatedSubtotal: subTotal,
+      });
+      setVoucherCode(res.data.code);
+      toast.success("Đã áp dụng mã " + res.data.code + ": Giảm " + formatCurrency(res.data.discountAmount));
+    } catch (error: unknown) {
+      setAppliedVoucher(null);
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(message || "Lỗi khi kiểm tra mã khuyến mãi");
     } finally {
       setVoucherLoading(false);
     }
@@ -456,8 +443,8 @@ export default function Booking() {
       },
       services,
       paymentMethod,
-      voucherCode: appliedVoucher?.code || "",
-      discount: appliedVoucher?.discountAmount || 0,
+      voucherCode: activeVoucher?.code || "",
+      discount: activeVoucher?.discountAmount || 0,
       createdAt: new Date().toISOString(),
     };
 
@@ -477,17 +464,18 @@ export default function Booking() {
       }
       window.dispatchEvent(new CustomEvent("booking:created", { detail: res.data }));
 
-      if (paymentMethod === "cash") {
+      const backendTotal = Number(res.data.groupTotal ?? res.data.total ?? 0);
+      if (paymentMethod === "cash" || backendTotal === 0) {
         const code = `BK${String(res.data.id).padStart(6, "0")}`;
         const qrData = `CHECKIN-${code} | Sân: ${payload.fieldName} - ${payload.court} | Tên: ${payload.customer.fullName} | ĐT: ${payload.customer.phone}`;
         const checkinQrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250`;
 
         setSuccess({
           code,
-          paymentMethod: "cash",
+          paymentMethod: backendTotal === 0 ? "voucher" : "cash",
           checkinQrUrl,
         });
-        toast.success("Đặt sân thành công!");
+        toast.success(backendTotal === 0 ? "Voucher đã thanh toán toàn bộ đơn!" : "Đặt sân thành công!");
         setLoading(false);
         return;
       }
@@ -1085,14 +1073,14 @@ export default function Booking() {
                     <div className="flex gap-2">
                       <input
                         value={voucherCode}
-                        onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                        onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setAppliedVoucher(null); }}
                         placeholder="MÃ GIẢM GIÁ..."
                         className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 w-full text-xs font-bold text-slate-900 outline-none focus:border-amber-400 uppercase placeholder:text-slate-400"
                       />
                       <button
                         type="button"
                         onClick={applyVoucher}
-                        disabled={voucherLoading || !subTotal}
+                        disabled={voucherLoading || !subTotal || !voucherCode.trim()}
                         className="btn-outline px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap disabled:opacity-40"
                       >
                         {voucherLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Áp dụng"}
@@ -1100,10 +1088,10 @@ export default function Booking() {
                     </div>
                   </div>
 
-                  {appliedVoucher && (
+                  {activeVoucher && (
                     <div className="flex justify-between border-b border-slate-100 pb-3 text-emerald-600">
                       <span className="flex items-center gap-1"><Tag size={14} /> Giảm giá voucher</span>
-                      <span className="font-extrabold">-{formatCurrency(appliedVoucher.discountAmount)}</span>
+                      <span className="font-extrabold">-{formatCurrency(activeVoucher.discountAmount)}</span>
                     </div>
                   )}
 

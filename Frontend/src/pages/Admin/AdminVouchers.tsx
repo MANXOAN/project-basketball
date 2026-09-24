@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Table, Button, Input, Modal, Form, Select, InputNumber, Switch, message, Spin } from "antd";
+import type { ThHTMLAttributes } from "react";
+import type { Dayjs } from "dayjs";
+import { Table, Button, Input, Modal, Form, Select, InputNumber, Switch, message, Spin, DatePicker } from "antd";
 import { Ticket, Plus, Search, Percent, DollarSign, BarChart3, CheckCircle2, Archive } from "lucide-react";
 import { api, formatCurrency } from "../../lib/api";
 
@@ -11,7 +13,18 @@ interface Voucher {
     limit: number;
     used: number;
     status: 'active' | 'inactive';
+    startsAt?: string | null;
+    endsAt?: string | null;
 }
+
+type VoucherFormValues = {
+    code: string;
+    discount: number;
+    type: 'percent' | 'fixed';
+    limit: number;
+    status: boolean;
+    validity?: [Dayjs, Dayjs];
+};
 
 export default function AdminVouchers() {
     const [vouchers, setVouchers] = useState<Voucher[]>([]);
@@ -19,6 +32,7 @@ export default function AdminVouchers() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [form] = Form.useForm();
     const [searchText, setSearchText] = useState("");
+    const voucherType = Form.useWatch("type", form);
 
     const fetchVouchers = async () => {
         try {
@@ -35,15 +49,24 @@ export default function AdminVouchers() {
         fetchVouchers();
     }, []);
 
-    const handleCreate = async (values: any) => {
+    const handleCreate = async (values: VoucherFormValues) => {
         try {
-            await api.post("/vouchers", { ...values, used: 0, status: values.status ? 'active' : 'inactive' });
-            message.success("Tạo mã thành công!");
+            await api.post("/vouchers", {
+                code: values.code.trim().toUpperCase(),
+                type: values.type,
+                discount: values.discount,
+                limit: values.limit,
+                status: values.status ? 'active' : 'inactive',
+                startsAt: values.validity?.[0]?.startOf("day").toISOString() || null,
+                endsAt: values.validity?.[1]?.endOf("day").toISOString() || null,
+            });
+            message.success("Tạo mã thành công!");
             setIsModalOpen(false);
             form.resetFields();
             fetchVouchers();
-        } catch {
-            message.error("Lỗi!");
+        } catch (error: unknown) {
+            const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+            message.error(errorMessage || "Không thể tạo voucher");
         }
     };
 
@@ -77,8 +100,18 @@ export default function AdminVouchers() {
         {
             title: "Đã dùng / Giới hạn",
             key: "usage",
-            render: (_: any, r: Voucher) => (
+            render: (_: unknown, r: Voucher) => (
                 <div className="min-w-[130px]"><div className="flex justify-between text-xs font-bold text-gray-400 mb-1"><span>{r.used} lượt dùng</span><span>{r.limit}</span></div><div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full bg-yellow-500" style={{ width: `${Math.min(100, (r.used / Math.max(r.limit, 1)) * 100)}%` }} /></div></div>
+            )
+        },
+        {
+            title: "Thời gian áp dụng",
+            key: "validity",
+            render: (_: unknown, r: Voucher) => (
+                <div className="text-xs text-gray-500">
+                    <div>{r.startsAt ? new Date(r.startsAt).toLocaleDateString("vi-VN") : "Dùng ngay"}</div>
+                    <div className="mt-1 font-semibold text-gray-700">đến {r.endsAt ? new Date(r.endsAt).toLocaleDateString("vi-VN") : "không giới hạn"}</div>
+                </div>
             )
         },
         {
@@ -131,7 +164,7 @@ export default function AdminVouchers() {
                     columns={columns}
                     rowKey="id"
                     locale={{ emptyText: <div className="py-12 text-center text-gray-500"><Archive className="mx-auto mb-3 text-yellow-500" /><p>Chưa có mã khuyến mãi phù hợp</p></div> }}
-                    components={{ header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold uppercase text-xs tracking-wider !border-b-white/10 py-4" /> } }}
+                    components={{ header: { cell: (props: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold uppercase text-xs tracking-wider !border-b-white/10 py-4" /> } }}
                 />
             </div>
 
@@ -144,7 +177,7 @@ export default function AdminVouchers() {
                 className="rounded-2xl"
             >
                 <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4" initialValues={{ type: 'percent', status: true }}>
-                    <Form.Item name="code" label={<span className="font-semibold text-gray-700">Mã Code (VD: GIOVANG50)</span>} rules={[{ required: true }]}>
+                    <Form.Item name="code" label={<span className="font-semibold text-gray-700">Mã Code (VD: GIOVANG50)</span>} rules={[{ required: true, message: "Nhập mã voucher" }, { pattern: new RegExp("^[A-Za-z0-9_-]{3,32}" + String.fromCharCode(36)), message: "Dùng 3-32 ký tự chữ, số, - hoặc _" }]}>
                         <Input size="large" className="rounded-xl font-bold uppercase text-blue-600" />
                     </Form.Item>
 
@@ -156,12 +189,16 @@ export default function AdminVouchers() {
                             </Select>
                         </Form.Item>
                         <Form.Item name="discount" label={<span className="font-semibold text-gray-700">Giá trị giảm</span>} rules={[{ required: true }]}>
-                            <InputNumber size="large" className="w-full rounded-xl" min={1} />
+                            <InputNumber size="large" className="w-full rounded-xl" min={1} max={voucherType === 'percent' ? 100 : undefined} />
                         </Form.Item>
                     </div>
 
                     <Form.Item name="limit" label={<span className="font-semibold text-gray-700">Số lượng sử dụng tối đa</span>} rules={[{ required: true }]}>
                         <InputNumber size="large" className="w-full rounded-xl" min={1} />
+                    </Form.Item>
+
+                    <Form.Item name="validity" label={<span className="font-semibold text-gray-700">Thời gian áp dụng (tùy chọn)</span>}>
+                        <DatePicker.RangePicker size="large" className="w-full rounded-xl" format="DD/MM/YYYY" />
                     </Form.Item>
 
                     <Form.Item name="status" valuePropName="checked">

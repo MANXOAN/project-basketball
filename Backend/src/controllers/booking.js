@@ -10,6 +10,13 @@ import { serialize, serializeMany } from "../utils/serialize";
 import Voucher from "../models/Voucher";
 import { sendMail } from "../utils/mailer";
 import { bookingModeFor, expandBookingSchedule } from "../services/bookingPlan";
+import {
+  calculateVoucherDiscount,
+  normalizeVoucherCode,
+  validateVoucherCode,
+  voucherAvailabilityMessage,
+  voucherClaimFilter,
+} from "../services/voucherPolicy";
 
 function toMin(t) {
   const [h, m] = String(t).split(":").map(Number);
@@ -104,6 +111,31 @@ function splitAmount(amount, count, index) {
   return base + (index < whole % count ? 1 : 0);
 }
 
+async function releaseVoucherUsageForGroups(groupIds) {
+  if (!groupIds.length) return;
+  const groups = await BookingGroup.find({
+    id: { $in: groupIds },
+    paymentStatus: "unpaid",
+    voucherClaimed: true,
+    voucherUsageReleased: false,
+    voucherCode: { $ne: "" },
+  }).select("id voucherCode");
+
+  for (const group of groups) {
+    const released = await BookingGroup.findOneAndUpdate(
+      { id: group.id, voucherClaimed: true, voucherUsageReleased: false },
+      { $set: { voucherUsageReleased: true } },
+      { new: true }
+    );
+    if (released) {
+      await Voucher.updateOne(
+        { code: group.voucherCode, used: { $gt: 0 } },
+        { $inc: { used: -1 } }
+      );
+    }
+  }
+}
+
 export async function expirePendingPayments() {
   const expired = await Booking.find({
     status: "pending",
@@ -128,6 +160,7 @@ export async function expirePendingPayments() {
       { id: { $in: expiredGroupIds }, paymentStatus: "unpaid" },
       { $set: { status: "cancelled" } }
     );
+    await releaseVoucherUsageForGroups(expiredGroupIds);
   }
 }
 
@@ -254,17 +287,44 @@ export async function getRefundRequests(_req, res) {
     const list = await Booking.find({
       refundStatus: { $in: ["pending", "completed"] },
     }).sort({ updatedAt: -1, id: -1 });
-    const duplicatePayments = await Payment.find({
-      bookingId: { $in: list.map((booking) => booking.id) },
-      status: { $in: ["refund_pending", "refunded"] },
-    }).sort({ createdAt: -1 });
-    const paymentByBooking = new Map();
-    duplicatePayments.forEach((payment) => {
-      if (!paymentByBooking.has(payment.bookingId)) paymentByBooking.set(payment.bookingId, payment);
-    });
+    const bookingIds = list.map((booking) => booking.id);
+    const bookingGroupIds = [...new Set(list.map((booking) => booking.bookingGroupId).filter(Boolean))];
+    const paymentScope = [{ bookingId: { $in: bookingIds } }];
+    if (bookingGroupIds.length) paymentScope.push({ bookingGroupId: { $in: bookingGroupIds } });
+    const payments = bookingIds.length
+      ? await Payment.find({
+        $or: paymentScope,
+        paymentKind: { $ne: "refund" },
+        status: { $in: ["success", "refund_pending", "refunded"] },
+      }).sort({ createdAt: -1 })
+      : [];
+
     const data = serializeMany(list).map((booking) => {
-      const payment = paymentByBooking.get(booking.id);
-      return payment ? { ...booking, refundTransactionCode: payment.transactionCode || payment.paymentCode, refundGateway: payment.gateway } : booking;
+      const matchingPayments = payments.filter((payment) =>
+        payment.bookingId === booking.id ||
+        (booking.bookingGroupId && payment.bookingGroupId === booking.bookingGroupId)
+      );
+      const relevantPayments = booking.refundReason === "duplicate_or_expired_payment"
+        ? matchingPayments.filter((payment) => ["refund_pending", "refunded"].includes(payment.status))
+        : matchingPayments.filter((payment) => payment.status === "success");
+      const refundPayments = relevantPayments.map((payment) => ({
+        paymentCode: payment.paymentCode,
+        transactionCode: payment.transactionCode || "",
+        gateway: payment.gateway,
+        bankCode: payment.bankCode || "",
+        amount: payment.amount,
+        paymentKind: payment.paymentKind,
+        paidAt: payment.paidAt,
+      }));
+      const primaryPayment = refundPayments[0];
+      return primaryPayment ? {
+        ...booking,
+        refundPayments,
+        refundTransactionCode: primaryPayment.transactionCode || primaryPayment.paymentCode,
+        refundPaymentCode: primaryPayment.paymentCode,
+        refundGateway: primaryPayment.gateway,
+        refundBankCode: primaryPayment.bankCode,
+      } : { ...booking, refundPayments: [] };
     });
     return res.json(data);
   } catch (e) {
@@ -336,18 +396,17 @@ export async function createBooking(req, res) {
     const servicesTotal = normalizedServices.reduce((sum, service) => sum + service.price * service.quantity, 0);
     const hourlyRate = reservableCourts.reduce((sum, court) => sum + Number(court.price || 0), 0);
     const grossTotal = Math.round(hourlyRate * dur * occurrences.length + servicesTotal);
-    const normalizedVoucherCode = String(voucherCode || "").trim();
+    const normalizedVoucherCode = normalizeVoucherCode(voucherCode);
     let voucher = null;
     let calculatedDiscount = 0;
     if (normalizedVoucherCode) {
-      voucher = await Voucher.findOne({ code: normalizedVoucherCode, status: "active" });
-      if (!voucher || Number(voucher.used) >= Number(voucher.limit)) {
-        return res.status(400).json({ message: "Voucher không hợp lệ hoặc đã hết lượt sử dụng" });
+      if (!validateVoucherCode(normalizedVoucherCode)) {
+        return res.status(400).json({ message: "Mã khuyến mãi không hợp lệ" });
       }
-      calculatedDiscount = voucher.type === "percent"
-        ? Math.round(grossTotal * Math.min(100, Math.max(0, Number(voucher.discount))) / 100)
-        : Math.max(0, Number(voucher.discount));
-      calculatedDiscount = Math.min(grossTotal, Math.round(calculatedDiscount));
+      voucher = await Voucher.findOne({ code: normalizedVoucherCode });
+      const unavailableMessage = voucherAvailabilityMessage(voucher);
+      if (unavailableMessage) return res.status(400).json({ message: unavailableMessage });
+      calculatedDiscount = calculateVoucherDiscount(voucher, grossTotal);
     }
     const calculatedTotal = Math.max(0, grossTotal - calculatedDiscount);
 
@@ -400,7 +459,8 @@ export async function createBooking(req, res) {
 
     const createdBookingIds = [];
     let firstBooking = null;
-    const paymentExpiresAt = normalizedPaymentMethod === "cash" ? null : new Date(Date.now() + 15 * 60 * 1000);
+    const isComplimentaryBooking = calculatedTotal === 0;
+    const paymentExpiresAt = normalizedPaymentMethod === "cash" || isComplimentaryBooking ? null : new Date(Date.now() + 15 * 60 * 1000);
     const courtLabel = normalizedMode === "full_field"
       ? `Bao toàn bộ sân (${reservableCourts.length} sân con)`
       : selectedCourt.name;
@@ -426,10 +486,10 @@ export async function createBooking(req, res) {
           customer: bookingCustomer,
           services: normalizedServices,
           paymentMethod: normalizedPaymentMethod,
-          paymentStatus: "unpaid",
+          paymentStatus: isComplimentaryBooking ? "paid" : "unpaid",
           paidAmount: 0,
           paymentExpiresAt,
-          status: "pending",
+          status: isComplimentaryBooking ? "confirmed" : "pending",
           voucherCode: normalizedVoucherCode,
           discount: splitAmount(calculatedDiscount, occurrences.length, index),
           createdBy: Number(req.user.id),
@@ -445,10 +505,13 @@ export async function createBooking(req, res) {
         mode: normalizedMode,
         total: calculatedTotal,
         paidAmount: 0,
-        paymentStatus: "unpaid",
-        status: "pending",
+        paymentStatus: isComplimentaryBooking ? "paid" : "unpaid",
+        status: isComplimentaryBooking ? "confirmed" : "pending",
         paymentExpiresAt,
         userId: bookingCustomer.userId || null,
+        voucherCode: normalizedVoucherCode,
+        voucherClaimed: false,
+        voucherUsageReleased: false,
       });
     } catch (error) {
       await BookingGroup.deleteOne({ id: bookingGroupId });
@@ -459,14 +522,26 @@ export async function createBooking(req, res) {
 
     if (voucher) {
       const claimedVoucher = await Voucher.findOneAndUpdate(
-        { id: voucher.id, status: "active", used: { $lt: voucher.limit } },
-        { $inc: { used: 1 } }
+        voucherClaimFilter(voucher),
+        { $inc: { used: 1 } },
+        { new: true }
       );
       if (!claimedVoucher) {
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
-        return res.status(409).json({ message: "Voucher vừa hết lượt sử dụng" });
+        return res.status(409).json({ message: "Voucher vừa hết lượt hoặc không còn hiệu lực" });
+      }
+      const markedGroup = await BookingGroup.updateOne(
+        { id: bookingGroupId, voucherClaimed: false },
+        { $set: { voucherClaimed: true } }
+      );
+      if (markedGroup.modifiedCount !== 1) {
+        await Voucher.updateOne({ id: voucher.id, used: { $gt: 0 } }, { $inc: { used: -1 } });
+        await BookingGroup.deleteOne({ id: bookingGroupId });
+        await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
+        return res.status(409).json({ message: "Không thể ghi nhận lượt sử dụng voucher" });
       }
     }
 
@@ -556,8 +631,9 @@ export async function cancelBooking(req, res) {
           { id: booking.bookingGroupId, paymentStatus: "unpaid" },
           { $set: { status: "cancelled" } }
         );
+        await releaseVoucherUsageForGroups([booking.bookingGroupId]);
         const updatedGroupBooking = await Booking.findOne({ id });
-        return res.json({ ...serialize(updatedGroupBooking), cancelledGroupSize: groupBookingIds.length });
+        return res.json({ ...serialize(updatedGroupBooking), cancelledGroupSize: groupBookingIds.length, cancelledBookingIds: groupBookingIds });
       }
     }
 
