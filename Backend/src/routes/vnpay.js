@@ -67,22 +67,34 @@ router.post('/create-url', authRequired, async function (req, res, next) {
         if (!staff && !owner) {
             return res.status(403).json({ message: "Bạn không có quyền thanh toán đơn này" });
         }
-        if (booking.status === "cancelled") {
-            return res.status(400).json({ message: "Đơn đã hết hạn hoặc đã hủy" });
+        const groupBookings = booking.bookingGroupId
+            ? await Booking.find({ bookingGroupId: booking.bookingGroupId }).sort({ id: 1 })
+            : [booking];
+        if (!groupBookings.length || groupBookings.some((item) => item.status === "cancelled")) {
+            return res.status(400).json({ message: "Đơn hoặc một phần lịch đã hết hạn/hủy" });
         }
-        const paidAmount = Number(booking.paidAmount) || (booking.paymentStatus === "deposit_paid" ? Math.round(Number(booking.total) * 0.3) : 0);
+        const groupTotal = groupBookings.reduce((sum, item) => sum + Number(item.total || 0), 0);
+        const paymentFilter = booking.bookingGroupId
+            ? { bookingGroupId: booking.bookingGroupId, status: "success", paymentKind: { $in: ["deposit", "balance", "full"] } }
+            : { bookingId: booking.id, status: "success", paymentKind: { $in: ["deposit", "balance", "full"] } };
+        const successfulPayments = await Payment.find(paymentFilter).select("amount");
+        const paidAmount = successfulPayments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        const groupPaymentStatus = groupBookings[0].paymentStatus;
+        if (groupBookings.some((item) => item.paymentStatus !== groupPaymentStatus)) {
+            return res.status(409).json({ message: "Trạng thái thanh toán của nhóm lịch không đồng nhất" });
+        }
         const expectedAmount = paymentKind === "deposit"
-            ? Math.round(Number(booking.total) * 0.3)
+            ? Math.round(groupTotal * 0.3)
             : paymentKind === "balance"
-                ? Math.max(0, Number(booking.total) - paidAmount)
-                : Number(booking.total);
+                ? Math.max(0, groupTotal - paidAmount)
+                : groupTotal;
         if (expectedAmount <= 0 || requestedAmount !== expectedAmount) {
             return res.status(400).json({ message: "Số tiền thanh toán không khớp với số tiền còn phải trả" });
         }
-        if (paymentKind === "balance" && booking.paymentStatus !== "deposit_paid") {
+        if (paymentKind === "balance" && groupPaymentStatus !== "deposit_paid") {
             return res.status(400).json({ message: "Chỉ có thể thanh toán phần còn lại cho đơn đã đặt cọc" });
         }
-        if (paymentKind !== "balance" && booking.paymentStatus !== "unpaid") {
+        if (paymentKind !== "balance" && groupPaymentStatus !== "unpaid") {
             return res.status(400).json({ message: "Đơn đã có giao dịch thanh toán, vui lòng chỉ thanh toán số tiền còn lại" });
         }
         if (paymentKind === "deposit" && booking.paymentMethod !== "deposit") {
@@ -126,6 +138,7 @@ router.post('/create-url', authRequired, async function (req, res, next) {
             { paymentCode },
             {
                 bookingId: booking.id,
+                bookingGroupId: booking.bookingGroupId || "",
                 paymentCode,
                 transactionCode: "",
                 gateway: "vnpay",

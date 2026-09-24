@@ -15,6 +15,12 @@ const bookingSchema = new mongoose.Schema(
   {
     id: { type: Number, unique: true, required: true },
     fieldId: { type: Number, required: true, index: true },
+    bookingGroupId: { type: String, default: "", index: true },
+    bookingMode: { type: String, enum: ["single", "recurring", "full_field"], default: "single" },
+    reservedCourtIds: { type: [Number], default: [] },
+    groupTotal: { type: Number, default: 0, min: 0 },
+    groupSize: { type: Number, default: 1, min: 1 },
+    isGroupPrimary: { type: Boolean, default: false },
     courtId: { type: Number, required: true, index: true },
     fieldName: { type: String, default: "" },
     court: { type: String, default: "" },

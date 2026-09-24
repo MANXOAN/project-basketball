@@ -406,7 +406,7 @@ export default function MyBookings() {
                         <div className="text-xl font-black text-amber-600">
                           {formatCurrency(b.total)}
                           {b.paymentMethod === "deposit" && b.paymentStatus === "deposit_paid" && (
-                            <span className="text-xs text-gray-400 font-normal ml-2">(Đã cọc 30% · còn {formatCurrency(Math.max(0, b.total - (b.paidAmount || Math.round(b.total * 0.3))))})</span>
+                            <span className="text-xs text-gray-400 font-normal ml-2">(Đã cọc 30% · còn {formatCurrency(Math.max(0, Number(b.groupTotal || b.total) - Math.round(Number(b.groupTotal || b.total) * 0.3)))})</span>
                           )}
                           {b.paymentMethod === "deposit" && b.paymentStatus === "unpaid" && (
                             <span className="text-xs text-rose-500 font-normal ml-2">(Chưa thanh toán tiền cọc)</span>

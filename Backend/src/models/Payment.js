@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const paymentSchema = new mongoose.Schema(
   {
     bookingId: { type: Number, required: true, index: true },
+    bookingGroupId: { type: String, default: "", index: true },
     paymentCode: { type: String, required: true, unique: true, index: true },
     transactionCode: { type: String, default: "" },
     gateway: { type: String, default: "sepay" },

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import qs from "qs";
 import Booking from "../models/Booking";
 import Payment from "../models/Payment";
+import BookingGroup from "../models/BookingGroup";
 import { sendMail } from "../utils/mailer";
 import {
   buildPaymentConfirmationEmail,
@@ -88,6 +89,63 @@ function paidBookingUpdate(booking, payment) {
   };
 }
 
+function splitAmount(amount, count, index) {
+  const whole = Math.max(0, Math.round(Number(amount) || 0));
+  const base = Math.floor(whole / count);
+  return base + (index < whole % count ? 1 : 0);
+}
+
+async function applyGroupPayment(booking, payment) {
+  if (!payment.bookingGroupId) return null;
+  const expectedStatus = payment.paymentKind === "balance" ? "deposit_paid" : "unpaid";
+  const group = await BookingGroup.findOne({ id: payment.bookingGroupId });
+  if (!group) return null;
+
+  const nextPaymentStatus = payment.paymentKind === "deposit" ? "deposit_paid" : "paid";
+  const nextPaidAmount = nextPaymentStatus === "paid"
+    ? Number(group.total)
+    : Math.min(Number(group.total), Number(payment.amount));
+  const claimedGroup = await BookingGroup.findOneAndUpdate(
+    { id: group.id, status: { $ne: "cancelled" }, paymentStatus: expectedStatus },
+    {
+      $set: {
+        paymentStatus: nextPaymentStatus,
+        paidAmount: nextPaidAmount,
+        status: "confirmed",
+        paymentExpiresAt: null,
+      },
+    },
+    { new: true }
+  );
+  if (!claimedGroup) return { claimed: false, booking };
+
+  const members = await Booking.find({ bookingGroupId: group.id }).sort({ id: 1 });
+  for (const [index, member] of members.entries()) {
+    const memberPaidAmount = nextPaymentStatus === "paid"
+      ? Number(member.total)
+      : Math.min(Number(member.total), splitAmount(payment.amount, members.length, index));
+    await Booking.updateOne(
+      { id: member.id, status: { $ne: "cancelled" } },
+      {
+        $set: {
+          paidAmount: memberPaidAmount,
+          paymentStatus: nextPaymentStatus,
+          status: "confirmed",
+          paymentExpiresAt: null,
+        },
+      }
+    );
+  }
+  const updatedPrimary = await Booking.findOne({ id: group.primaryBookingId });
+  const emailBooking = updatedPrimary
+    ? {
+      ...updatedPrimary.toObject(),
+      schedule: members.map((member) => ({ date: member.date, time: member.time })),
+    }
+    : booking;
+  return { claimed: true, booking: emailBooking };
+}
+
 function callbackResult({ payment, booking, state, message, code = "00" }) {
   return {
     ok: code === "00",
@@ -166,11 +224,14 @@ export async function processVnpayCallback(query) {
     });
   }
 
-  const updatedBooking = await Booking.findOneAndUpdate(
-    bookingPaymentFilter(booking.id, claimedPayment.paymentKind),
-    { $set: paidBookingUpdate(booking, claimedPayment) },
-    { new: true }
-  );
+  const groupedResult = await applyGroupPayment(booking, claimedPayment);
+  const updatedBooking = groupedResult
+    ? (groupedResult.claimed ? groupedResult.booking : null)
+    : await Booking.findOneAndUpdate(
+      bookingPaymentFilter(booking.id, claimedPayment.paymentKind),
+      { $set: paidBookingUpdate(booking, claimedPayment) },
+      { new: true }
+    );
 
   if (!updatedBooking) {
     const refundPayment = await Payment.findOneAndUpdate(

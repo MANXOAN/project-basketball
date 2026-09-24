@@ -2,10 +2,10 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } fro
 import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
-  CalendarDays, Clock, MapPin, CheckCircle2, Loader2, Wallet, QrCode, Tag, ChevronRight, ShieldCheck, Sparkles, ArrowLeft
+  CalendarDays, Clock, MapPin, CheckCircle2, Loader2, Wallet, QrCode, Tag, ChevronRight, ShieldCheck, Sparkles, ArrowLeft, Plus, Trash2
 } from "lucide-react";
 import {
-  api, Court, Field, formatCurrency, getBookedSlots, invalidateApiCache, isSlotConflict,
+  api, Court, Field, formatCurrency, getBookedSlots, getBookingsByDate, invalidateApiCache, isSlotConflict,
 } from "../lib/api";
 import { getUser } from "../lib/auth";
 
@@ -14,11 +14,16 @@ const DURATIONS = [
   { label: "1.5 giờ", value: 1.5 },
   { label: "2 giờ", value: 2 },
 ];
+type ScheduleSegment = { id: number; startDate: string; endDate: string; time: string };
+type BookingMode = "court" | "full_field";
+
 type BookingDraft = {
   fieldId?: number;
   courtId?: number;
   date?: string;
   recurringDates?: string[];
+  scheduleSegments?: Array<Omit<ScheduleSegment, "id">>;
+  bookingMode?: BookingMode;
   time?: string;
   duration?: number;
   customer?: { fullName?: string; phone?: string; note?: string };
@@ -57,6 +62,7 @@ export default function Booking() {
   const [courtId, setCourtId] = useState<number | null>(
     bookingDraft?.courtId || (courtIdParam ? Number(courtIdParam) : null)
   );
+  const [bookingMode, setBookingMode] = useState<BookingMode>(bookingDraft?.bookingMode || "court");
   const [date, setDate] = useState(bookingDraft?.date || dateParam || "");
   const [time, setTime] = useState(bookingDraft?.time || timeParam || "");
   const [duration, setDuration] = useState(Number(bookingDraft?.duration || 1));
@@ -70,7 +76,15 @@ export default function Booking() {
   const [bookedSlots, setBookedSlots] = useState<Awaited<ReturnType<typeof getBookedSlots>>>([]);
 
   const [endDate, setEndDate] = useState(
-    bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : ""
+    bookingDraft?.scheduleSegments?.[0]?.endDate || (bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : "")
+  );
+  const [schedulePeriods, setSchedulePeriods] = useState<ScheduleSegment[]>(() =>
+    (bookingDraft?.scheduleSegments || []).slice(1).map((segment, index) => ({
+      id: index + 1,
+      startDate: segment.startDate || "",
+      endDate: segment.endDate || segment.startDate || "",
+      time: segment.time || "",
+    }))
   );
   
   // State dịch vụ đi kèm
@@ -106,20 +120,40 @@ export default function Booking() {
     }
   }, [time, duration, isDurationValid]);
 
-  const recurringDates = useMemo(() => {
-    if (!date) return [];
-    const dates = [date];
-    if (endDate && endDate >= date) {
-      const current = new Date(date);
-      const end = new Date(endDate);
-      while (true) {
-        current.setDate(current.getDate() + 7);
-        if (current > end) break;
-        dates.push(current.toISOString().slice(0, 10));
+  const scheduleSegments = useMemo(() => {
+    const segments = date ? [{ startDate: date, endDate: endDate || date, time }] : [];
+    schedulePeriods.forEach((period) => {
+      if (period.startDate && period.endDate && period.time) {
+        segments.push({ startDate: period.startDate, endDate: period.endDate, time: period.time });
       }
-    }
-    return dates;
-  }, [date, endDate]);
+    });
+    return segments;
+  }, [date, endDate, time, schedulePeriods]);
+
+  const scheduledOccurrences = useMemo(() => {
+    const seen = new Set<string>();
+    return scheduleSegments.flatMap((segment) => {
+      if (!segment.startDate || !segment.endDate || segment.endDate < segment.startDate || !segment.time) return [];
+      const dates: Array<{ date: string; time: string }> = [];
+      const current = new Date(segment.startDate + "T00:00:00");
+      const end = new Date(segment.endDate + "T00:00:00");
+      while (current <= end) {
+        const occurrence = { date: current.toISOString().slice(0, 10), time: segment.time };
+        const key = occurrence.date + "|" + occurrence.time;
+        if (!seen.has(key)) {
+          seen.add(key);
+          dates.push(occurrence);
+        }
+        current.setDate(current.getDate() + 7);
+      }
+      return dates;
+    });
+  }, [scheduleSegments]);
+
+  const recurringDates = useMemo(
+    () => scheduledOccurrences.map((occurrence) => occurrence.date),
+    [scheduledOccurrences]
+  );
 
   // Tính tổng tiền các dịch vụ phát sinh
   const servicesTotal = (balls * 20000) + (bibs * 10000) + (water * 10000) + (mineralWater * 15000);
@@ -162,12 +196,13 @@ export default function Booking() {
   const refreshBookedSlots = useCallback(async (force = false) => {
     if (!courtId || !date) return;
     try {
-      const slots = await getBookedSlots(courtId, date, force);
-      setBookedSlots(slots);
+      const targetCourtIds = bookingMode === "full_field" ? courts.map((court) => court.id) : [courtId];
+      const slots = (await Promise.all(targetCourtIds.map((id) => getBookedSlots(id, date, force)))).flat();
+      setBookedSlots([...new Map(slots.map((slot) => [slot.id, slot])).values()]);
     } catch {
       // Giữ nguyên dữ liệu hiện có khi mạng lỗi để không vô tình mở lại ca đã giữ.
     }
-  }, [courtId, date]);
+  }, [courtId, date, bookingMode, courts]);
 
   useEffect(() => {
     refreshBookedSlots();
@@ -213,8 +248,10 @@ export default function Booking() {
     setTime(slot);
   };
 
-  const courtPrice = selectedCourt?.price ?? field?.pricePerHour ?? 0;
-  const subTotal = courtPrice * duration * recurringDates.length + servicesTotal;
+  const courtPrice = bookingMode === "full_field"
+    ? courts.reduce((sum, court) => sum + Number(court.price || 0), 0)
+    : selectedCourt?.price ?? field?.pricePerHour ?? 0;
+  const subTotal = courtPrice * duration * scheduledOccurrences.length + servicesTotal;
   const discount = appliedVoucher?.discountAmount || 0;
   const total = Math.max(0, subTotal - discount);
   const deposit = Math.round(total * 0.3);
@@ -281,7 +318,19 @@ export default function Booking() {
         toast.error("Vui lòng chọn sân, ngày và khung giờ trước khi tiếp tục");
         return;
       }
-      if (!isDurationValid(duration) || overlappingBooking(time)) {
+      if (schedulePeriods.some((period) => !period.startDate || !period.endDate || !period.time || period.endDate < period.startDate)) {
+        toast.error("Vui lòng điền đầy đủ và đúng thứ tự ngày cho các giai đoạn lịch");
+        return;
+      }
+      if (!scheduledOccurrences.length || scheduledOccurrences.length > 60) {
+        toast.error("Tổng số buổi phải từ 1 đến 60");
+        return;
+      }
+      if (bookingMode === "full_field" && courts.length < 2) {
+        toast.error("Cơ sở cần ít nhất 2 sân con đang hoạt động để bao sân");
+        return;
+      }
+      if (!isDurationValid(duration) || scheduleSegments.some((segment) => getEndTime(segment.time, duration) > closingTime) || overlappingBooking(time)) {
         toast.error("Khung giờ hoặc thời lượng đã chọn không còn phù hợp");
         return;
       }
@@ -340,11 +389,17 @@ export default function Booking() {
     setLoading(true);
 
     try {
-      for (const d of recurringDates) {
-        const slots = await getBookedSlots(selectedCourt.id, d, true);
-        if (slots.some((b) => isSlotConflict(b.time, b.duration, time, duration))) {
-          toast.error(`Khung giờ ngày ${d} vừa được đặt. Vui lòng chọn giờ khác.`);
-          if (d === date) setBookedSlots(slots);
+      const targetCourtIds = bookingMode === "full_field" ? courts.map((court) => court.id) : [selectedCourt.id];
+      for (const occurrence of scheduledOccurrences) {
+        const slots = await getBookingsByDate(occurrence.date, true);
+        const conflict = slots.some((booked) =>
+          booked.status !== "cancelled" &&
+          targetCourtIds.some((targetCourtId) => booked.courtId === targetCourtId || booked.reservedCourtIds?.includes(targetCourtId)) &&
+          isSlotConflict(booked.time, booked.duration, occurrence.time, duration)
+        );
+        if (conflict) {
+          toast.error("Khung giờ " + occurrence.time + " ngày " + occurrence.date + " vừa được đặt. Vui lòng chọn giờ khác.");
+          if (occurrence.date === date) setBookedSlots(slots);
           setLoading(false);
           return;
         }
@@ -368,6 +423,8 @@ export default function Booking() {
       court: selectedCourt.name,
       date,
       recurringDates,
+      scheduleSegments,
+      bookingMode,
       time,
       duration,
       total,
@@ -391,7 +448,7 @@ export default function Booking() {
       const res = await api.post("/bookings", payload);
       // Đơn đã được backend giữ slot ngay tại đây, trước khi chuyển Paygate.
       // Xóa cache và cập nhật UI tức thì để quay lại không cần F5.
-      for (const bookedDate of recurringDates) {
+      for (const bookedDate of [...new Set(recurringDates)]) {
         invalidateApiCache(`bookings:date:${bookedDate}`);
       }
       if (res.data.date === date && res.data.courtId === selectedCourt.id) {
@@ -555,18 +612,38 @@ export default function Booking() {
                 {field.name} · {field.address}
               </p>
 
+              <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setBookingMode("court")}
+                  className={bookingMode === "court" ? "rounded-2xl border border-amber-400 bg-amber-50 p-4 text-left ring-1 ring-amber-200" : "rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left hover:border-amber-300"}
+                >
+                  <span className="block text-sm font-extrabold text-slate-900">Đặt một sân con</span>
+                  <span className="mt-1 block text-xs text-slate-500">Chọn một sân theo mức giá riêng</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={courts.length < 2}
+                  onClick={() => setBookingMode("full_field")}
+                  className={bookingMode === "full_field" ? "rounded-2xl border border-amber-400 bg-amber-50 p-4 text-left ring-1 ring-amber-200" : "rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"}
+                >
+                  <span className="block text-sm font-extrabold text-slate-900">Bao toàn bộ sân</span>
+                  <span className="mt-1 block text-xs text-slate-500">Giữ đồng thời {courts.length} sân con · {formatCurrency(courts.reduce((sum, court) => sum + Number(court.price || 0), 0))}/giờ</span>
+                </button>
+              </div>
+
               {courts.length === 0 ? (
                 <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-800">
                   Cơ sở này chưa có sân đang hoạt động. Vui lòng chọn cơ sở khác hoặc liên hệ quản lý sân.
                 </div>
               ) : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {courts.map((c) => {
-                  const active = courtId === c.id;
+                  const active = bookingMode === "court" && courtId === c.id;
                   return (
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => setCourtId(c.id)}
+                      onClick={() => { setBookingMode("court"); setCourtId(c.id); }}
                       className={`rounded-2xl p-4 text-left transition-all relative overflow-hidden border ${
                         active
                           ? "bg-amber-50 border-amber-400 text-amber-700 shadow-sm ring-1 ring-amber-200"
@@ -620,7 +697,7 @@ export default function Booking() {
                     type="date"
                     value={endDate}
                     min={date || new Date().toISOString().slice(0, 10)}
-                    max={new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().slice(0, 10)}
+                    max={new Date(new Date().setMonth(new Date().getMonth() + 12)).toISOString().slice(0, 10)}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
                     style={{ colorScheme: "light" }}
@@ -691,6 +768,49 @@ export default function Booking() {
                     * Sân đóng cửa lúc {field.closeTime} nên chỉ áp dụng thời lượng phù hợp.
                   </p>
                 )}
+              </div>
+
+              <div className="mt-7 border-t border-slate-100 pt-6">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">Đổi khung giờ theo giai đoạn</h4>
+                    <p className="mt-1 text-xs text-slate-500">Ví dụ tháng đầu chơi sáng, tháng sau chuyển sang chiều.</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={schedulePeriods.length >= 11}
+                    onClick={() => setSchedulePeriods((periods) => [...periods, { id: Date.now(), startDate: "", endDate: "", time: "" }])}
+                    className="btn-outline inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-40"
+                  >
+                    <Plus className="h-4 w-4" /> Thêm giai đoạn
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {schedulePeriods.map((period, index) => (
+                    <div key={period.id} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_1fr_0.8fr_auto]">
+                      <label className="text-xs font-bold text-slate-500">
+                        Từ ngày
+                        <input type="date" value={period.startDate} min={date || new Date().toISOString().slice(0, 10)} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, startDate: event.target.value, endDate: item.endDate && item.endDate < event.target.value ? "" : item.endDate } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
+                      </label>
+                      <label className="text-xs font-bold text-slate-500">
+                        Đến ngày
+                        <input type="date" value={period.endDate} min={period.startDate || date || new Date().toISOString().slice(0, 10)} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, endDate: event.target.value } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400" />
+                      </label>
+                      <label className="text-xs font-bold text-slate-500">
+                        Khung giờ
+                        <select value={period.time} onChange={(event) => setSchedulePeriods((periods) => periods.map((item) => item.id === period.id ? { ...item, time: event.target.value } : item))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-amber-400">
+                          <option value="">Chọn giờ</option>
+                          {timeSlots.filter((slot) => getEndTime(slot, duration) <= closingTime).map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+                        </select>
+                      </label>
+                      <button type="button" onClick={() => setSchedulePeriods((periods) => periods.filter((item) => item.id !== period.id))} className="mt-5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 bg-white text-red-500 hover:bg-red-50" aria-label={"Xóa giai đoạn " + (index + 2)}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {scheduledOccurrences.length > 1 && <p className="mt-4 text-sm font-bold text-amber-700">Tổng cộng {scheduledOccurrences.length} buổi được đặt theo tuần.</p>}
               </div>
             </div>
 
@@ -892,7 +1012,7 @@ export default function Booking() {
 
                   <div className="flex justify-between border-b border-slate-100 pb-3">
                     <span className="text-slate-500">Sân đấu</span>
-                    <span className="text-slate-900 font-bold">{selectedCourt?.name || "—"}</span>
+                    <span className="text-slate-900 font-bold">{bookingMode === "full_field" ? "Bao toàn bộ sân (" + courts.length + " sân con)" : selectedCourt?.name || "—"}</span>
                   </div>
 
                   <div className="flex justify-between border-b border-slate-100 pb-3">
@@ -908,7 +1028,7 @@ export default function Booking() {
                     <span className="text-slate-500 flex items-center gap-1.5">
                       <Clock className="w-4 h-4 text-yellow-500" /> Giờ đá
                     </span>
-                    <span className="text-slate-900 font-bold">{time || "Chưa chọn"} ({duration}h)</span>
+                    <span className="text-slate-900 font-bold">{scheduleSegments.length > 1 ? scheduleSegments.length + " giai đoạn" : time || "Chưa chọn"} ({duration}h)</span>
                   </div>
 
                   {servicesTotal > 0 && (

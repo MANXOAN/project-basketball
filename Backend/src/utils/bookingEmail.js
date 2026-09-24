@@ -21,6 +21,11 @@ export function buildPaymentConfirmationEmail(booking, payment) {
     : payment.paymentKind === "balance"
       ? "Thanh toán phần còn lại"
       : "Thanh toán toàn bộ";
+  const orderTotal = Number(booking.groupTotal || booking.total || 0);
+  const totalPaid = payment.paymentKind === "deposit" ? Number(payment.amount) : orderTotal;
+  const scheduleRows = Array.isArray(booking.schedule) && booking.schedule.length > 1
+    ? booking.schedule.map((item) => `<li>${escapeHtml(item.date)} lúc ${escapeHtml(item.time)}</li>`).join("")
+    : "";
 
   return {
     subject: `Xác nhận thanh toán đơn ${code}`,
@@ -31,14 +36,16 @@ export function buildPaymentConfirmationEmail(booking, payment) {
       <ul>
         <li>Cơ sở: ${escapeHtml(booking.fieldName)}</li>
         <li>Sân: ${escapeHtml(booking.court)}</li>
-        <li>Ngày chơi: ${escapeHtml(booking.date)}</li>
-        <li>Khung giờ: ${escapeHtml(booking.time)} (${Number(booking.duration || 1)} giờ)</li>
+        <li>Ngày chơi đầu tiên: ${escapeHtml(booking.date)}</li>
+        <li>Khung giờ đầu tiên: ${escapeHtml(booking.time)} (${Number(booking.duration || 1)} giờ)</li>
+        ${scheduleRows ? `<li>Số buổi: ${booking.schedule.length}</li>` : ""}
         <li>Số tiền giao dịch: ${money(payment.amount)}</li>
-        <li>Đã thanh toán: ${money(booking.paidAmount)}</li>
-        <li>Tổng đơn: ${money(booking.total)}</li>
+        <li>Đã thanh toán: ${money(totalPaid)}</li>
+        <li>Tổng đơn: ${money(orderTotal)}</li>
         <li>Mã giao dịch: ${escapeHtml(payment.transactionCode || payment.paymentCode)}</li>
-        ${booking.voucherCode ? `<li>Voucher: ${escapeHtml(booking.voucherCode)} (giảm ${money(booking.discount)})</li>` : ""}
+        ${booking.voucherCode ? `<li>Voucher: ${escapeHtml(booking.voucherCode)}${booking.groupSize > 1 ? "" : ` (giảm ${money(booking.discount)})`}</li>` : ""}
       </ul>
+      ${scheduleRows ? `<p><strong>Toàn bộ lịch đã đặt:</strong></p><ul>${scheduleRows}</ul>` : ""}
       ${serviceRows ? `<p><strong>Dịch vụ:</strong></p><ul>${serviceRows}</ul>` : ""}
       <p>Thông tin khách: ${escapeHtml(booking.customer?.fullName)} — ${escapeHtml(booking.customer?.phone)}</p>
       <p>Vui lòng giữ email này để đối chiếu khi đến sân.</p>

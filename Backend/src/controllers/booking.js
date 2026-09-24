@@ -2,24 +2,18 @@ import Booking from "../models/Booking";
 import Court from "../models/Court";
 import Field from "../models/Field";
 import Payment from "../models/Payment";
+import BookingGroup from "../models/BookingGroup";
 import BookingSlot from "../models/BookingSlot";
 import Notification from "../models/Notification";
 import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 import Voucher from "../models/Voucher";
 import { sendMail } from "../utils/mailer";
+import { bookingModeFor, expandBookingSchedule } from "../services/bookingPlan";
 
 function toMin(t) {
   const [h, m] = String(t).split(":").map(Number);
   return h * 60 + (m || 0);
-}
-
-function overlaps(aTime, aDur, bTime, bDur) {
-  const a0 = toMin(aTime);
-  const a1 = a0 + (aDur || 1) * 60;
-  const b0 = toMin(bTime);
-  const b1 = b0 + (bDur || 1) * 60;
-  return a0 < b1 && b0 < a1;
 }
 
 function slotTimes(time, duration) {
@@ -90,8 +84,9 @@ export async function expirePendingPayments() {
     status: "pending",
     paymentStatus: "unpaid",
     paymentExpiresAt: { $ne: null, $lte: new Date() },
-  }).select("id");
+  }).select("id bookingGroupId");
   const expiredIds = expired.map((booking) => booking.id);
+  const expiredGroupIds = [...new Set(expired.map((booking) => booking.bookingGroupId).filter(Boolean))];
   if (expiredIds.length) {
     await BookingSlot.deleteMany({ bookingId: { $in: expiredIds } });
   }
@@ -103,6 +98,12 @@ export async function expirePendingPayments() {
     },
     { $set: { status: "cancelled", cancellationReason: "payment_expired" } }
   );
+  if (expiredGroupIds.length) {
+    await BookingGroup.updateMany(
+      { id: { $in: expiredGroupIds }, paymentStatus: "unpaid" },
+      { $set: { status: "cancelled" } }
+    );
+  }
 }
 
 export async function getBookings(req, res) {
@@ -113,7 +114,10 @@ export async function getBookings(req, res) {
       filter["customer.userId"] = Number(req.user.id);
     }
     if (req.query.date) filter.date = req.query.date;
-    if (req.query.courtId) filter.courtId = Number(req.query.courtId);
+    if (req.query.courtId) {
+      const requestedCourtId = Number(req.query.courtId);
+      filter.$or = [{ courtId: requestedCourtId }, { reservedCourtIds: requestedCourtId }];
+    }
     if (req.query.fieldId) filter.fieldId = Number(req.query.fieldId);
     if (req.query.status) filter.status = req.query.status;
     const list = await Booking.find(filter).sort({ id: -1 });
@@ -128,10 +132,13 @@ export async function getBookingAvailability(req, res) {
     await expirePendingPayments();
     const filter = { status: { $ne: "cancelled" } };
     if (req.query.date) filter.date = String(req.query.date);
-    if (req.query.courtId) filter.courtId = Number(req.query.courtId);
+    if (req.query.courtId) {
+      const requestedCourtId = Number(req.query.courtId);
+      filter.$or = [{ courtId: requestedCourtId }, { reservedCourtIds: requestedCourtId }];
+    }
     if (!filter.date) return res.status(400).json({ message: "Thiếu ngày cần kiểm tra" });
     const list = await Booking.find(filter)
-      .select("id courtId date time duration status")
+      .select("id courtId reservedCourtIds bookingMode date time duration status")
       .sort({ time: 1 });
     return res.json(serializeMany(list));
   } catch (e) {
@@ -219,58 +226,68 @@ export async function getRefundRequests(_req, res) {
 
 export async function createBooking(req, res) {
   try {
-    // Release timed-out payment holds before checking availability.
     await expirePendingPayments();
     const {
       fieldId,
       courtId,
       date,
       recurringDates,
+      scheduleSegments,
       time,
       duration,
       customer,
       services,
       paymentMethod,
       voucherCode,
+      bookingMode,
     } = req.body;
 
-    const requestedDates = Array.isArray(recurringDates) && recurringDates.length ? recurringDates : [date];
-    const targetDates = [...new Set(requestedDates.map((value) => String(value || "")))];
+    const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments });
     const dur = Number(duration) || 1;
     const numericCourtId = Number(courtId);
     const numericFieldId = Number(fieldId);
-
-    if (!targetDates.length || targetDates.length > 60 || targetDates.some((value) => !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
-      return res.status(400).json({ message: "Danh sách ngày đặt sân không hợp lệ" });
+    if (!Number.isFinite(dur) || dur <= 0 || dur > 8) {
+      return res.status(400).json({ message: "Thời lượng đặt sân không hợp lệ" });
     }
-    if (!Number.isFinite(dur) || dur <= 0 || dur > 8 || !validTime(time)) {
-      return res.status(400).json({ message: "Khung giờ hoặc thời lượng đặt sân không hợp lệ" });
+    if (occurrences.some((occurrence) => occurrence.date < new Date().toISOString().slice(0, 10))) {
+      return res.status(400).json({ message: "Không thể đặt lịch trong quá khứ" });
     }
 
-    const [selectedCourt, selectedField] = await Promise.all([
+    const [selectedCourt, selectedField, activeFieldCourts] = await Promise.all([
       Court.findOne({ id: numericCourtId }),
       Field.findOne({ id: numericFieldId }),
+      Court.find({ fieldId: numericFieldId, status: "active" }).sort({ id: 1 }),
     ]);
     if (!selectedCourt || selectedCourt.fieldId !== numericFieldId || !selectedField) {
       return res.status(400).json({ message: "Sân hoặc cơ sở không tồn tại" });
     }
-    if (selectedCourt.status !== "active" || selectedField.status !== "active") {
+    if (selectedCourt.status !== "active" || selectedField.status !== "active" || !isBasketballCourt(selectedCourt)) {
       return res.status(400).json({ message: "Sân hiện không sẵn sàng để đặt" });
     }
-    if (!isBasketballCourt(selectedCourt)) {
-      return res.status(400).json({ message: "Chỉ hỗ trợ đặt sân bóng rổ" });
+
+    const normalizedMode = bookingModeFor(bookingMode, occurrences.length);
+    const reservableCourts = normalizedMode === "full_field"
+      ? activeFieldCourts.filter(isBasketballCourt)
+      : [selectedCourt];
+    if (normalizedMode === "full_field" && reservableCourts.length < 2) {
+      return res.status(400).json({ message: "Cơ sở cần ít nhất 2 sân con đang hoạt động để bao sân" });
     }
 
     const open = toMin(selectedField.openTime || "06:00");
     const close = toMin(selectedField.closeTime || "22:00");
-    const start = toMin(time);
-    if (start < open || start + dur * 60 > close) {
-      return res.status(400).json({ message: `Khung giờ phải nằm trong giờ hoạt động ${selectedField.openTime}–${selectedField.closeTime}` });
+    for (const occurrence of occurrences) {
+      const start = toMin(occurrence.time);
+      if (!validTime(occurrence.time) || start < open || start + dur * 60 > close) {
+        return res.status(400).json({
+          message: `Khung giờ ngày ${occurrence.date} phải nằm trong giờ hoạt động ${selectedField.openTime}–${selectedField.closeTime}`,
+        });
+      }
     }
 
     const normalizedServices = sanitizeServices(services);
     const servicesTotal = normalizedServices.reduce((sum, service) => sum + service.price * service.quantity, 0);
-    const grossTotal = Math.round(Number(selectedCourt.price) * dur * targetDates.length + servicesTotal);
+    const hourlyRate = reservableCourts.reduce((sum, court) => sum + Number(court.price || 0), 0);
+    const grossTotal = Math.round(hourlyRate * dur * occurrences.length + servicesTotal);
     const normalizedVoucherCode = String(voucherCode || "").trim();
     let voucher = null;
     let calculatedDiscount = 0;
@@ -285,6 +302,7 @@ export async function createBooking(req, res) {
       calculatedDiscount = Math.min(grossTotal, Math.round(calculatedDiscount));
     }
     const calculatedTotal = Math.max(0, grossTotal - calculatedDiscount);
+
     const suppliedCustomer = customer && typeof customer === "object" ? customer : {};
     const requesterIsStaff = isStaff(req.user);
     const bookingCustomer = {
@@ -302,79 +320,90 @@ export async function createBooking(req, res) {
     if (!bookingCustomer.fullName || bookingCustomer.phone.length < 9) {
       return res.status(400).json({ message: "Tên và số điện thoại khách hàng không hợp lệ" });
     }
+
     const normalizedPaymentMethod = String(paymentMethod || "");
     if (!["cash", "deposit", "full"].includes(normalizedPaymentMethod)) {
       return res.status(400).json({ message: "Phương thức thanh toán không hợp lệ" });
     }
 
-    for (const d of targetDates) {
-      if (!courtId || !d || !time) {
-        return res.status(400).json({ message: "Thiếu courtId, date hoặc time" });
-      }
-
-      const existing = await Booking.find({
-        courtId: numericCourtId,
-        date: d,
-        status: { $ne: "cancelled" },
-      });
-
-      const conflict = existing.find((b) =>
-        overlaps(b.time, b.duration, time, dur)
-      );
-      if (conflict) {
-        return res.status(409).json({
-          message: `Khung giờ ngày ${d} đã được đặt. Vui lòng chọn giờ khác.`,
-          conflictId: conflict.id,
-        });
-      }
-    }
-
-    const bookingIds = await Promise.all(targetDates.map(() => nextId("bookings")));
-    const locks = targetDates.flatMap((d, index) => slotTimes(time, dur).map((slot) => ({
-      bookingId: bookingIds[index], courtId: numericCourtId, date: d, time: slot,
-    })));
+    const bookingIds = await Promise.all(occurrences.map(() => nextId("bookings")));
+    const bookingGroupId = `BG_${bookingIds[0]}_${Date.now()}`;
+    const reservedCourtIds = reservableCourts.map((court) => Number(court.id));
+    const locks = occurrences.flatMap((occurrence, index) =>
+      reservedCourtIds.flatMap((reservedCourtId) =>
+        slotTimes(occurrence.time, dur).map((slot) => ({
+          bookingId: bookingIds[index],
+          courtId: reservedCourtId,
+          date: occurrence.date,
+          time: slot,
+        }))
+      )
+    );
 
     try {
       await BookingSlot.insertMany(locks, { ordered: true });
     } catch (error) {
       await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
       if (error?.code === 11000) {
-        return res.status(409).json({ message: "Khung giờ vừa được người khác đặt. Vui lòng chọn giờ khác." });
+        return res.status(409).json({ message: "Một hoặc nhiều khung giờ vừa được người khác đặt. Vui lòng kiểm tra lại lịch." });
       }
       throw error;
     }
 
-    let firstBooking = null;
     const createdBookingIds = [];
+    let firstBooking = null;
+    const paymentExpiresAt = normalizedPaymentMethod === "cash" ? null : new Date(Date.now() + 15 * 60 * 1000);
+    const courtLabel = normalizedMode === "full_field"
+      ? `Bao toàn bộ sân (${reservableCourts.length} sân con)`
+      : selectedCourt.name;
 
     try {
-      for (const [index, d] of targetDates.entries()) {
+      for (const [index, occurrence] of occurrences.entries()) {
         const booking = await Booking.create({
-        id: bookingIds[index],
-        fieldId: numericFieldId,
-        courtId: numericCourtId,
-        fieldName: selectedField.name,
-        court: selectedCourt.name,
-        date: d,
-        time,
-        duration: dur,
-        total: splitAmount(calculatedTotal, targetDates.length, index),
-        customer: bookingCustomer,
-        services: normalizedServices,
-        paymentMethod: normalizedPaymentMethod,
-        paymentStatus: "unpaid",
-        paidAmount: 0,
-        paymentExpiresAt: normalizedPaymentMethod === "cash" ? null : new Date(Date.now() + 15 * 60 * 1000),
-        status: "pending",
-        voucherCode: normalizedVoucherCode,
-        discount: splitAmount(calculatedDiscount, targetDates.length, index),
-        createdBy: Number(req.user.id),
-        createdAt: new Date().toISOString(),
-      });
+          id: bookingIds[index],
+          bookingGroupId,
+          bookingMode: normalizedMode,
+          reservedCourtIds,
+          groupTotal: calculatedTotal,
+          groupSize: occurrences.length,
+          isGroupPrimary: index === 0,
+          fieldId: numericFieldId,
+          courtId: numericCourtId,
+          fieldName: selectedField.name,
+          court: courtLabel,
+          date: occurrence.date,
+          time: occurrence.time,
+          duration: dur,
+          total: splitAmount(calculatedTotal, occurrences.length, index),
+          customer: bookingCustomer,
+          services: normalizedServices,
+          paymentMethod: normalizedPaymentMethod,
+          paymentStatus: "unpaid",
+          paidAmount: 0,
+          paymentExpiresAt,
+          status: "pending",
+          voucherCode: normalizedVoucherCode,
+          discount: splitAmount(calculatedDiscount, occurrences.length, index),
+          createdBy: Number(req.user.id),
+          createdAt: new Date().toISOString(),
+        });
         createdBookingIds.push(booking.id);
         if (!firstBooking) firstBooking = booking;
       }
+      await BookingGroup.create({
+        id: bookingGroupId,
+        primaryBookingId: bookingIds[0],
+        bookingIds,
+        mode: normalizedMode,
+        total: calculatedTotal,
+        paidAmount: 0,
+        paymentStatus: "unpaid",
+        status: "pending",
+        paymentExpiresAt,
+        userId: bookingCustomer.userId || null,
+      });
     } catch (error) {
+      await BookingGroup.deleteOne({ id: bookingGroupId });
       await Booking.deleteMany({ id: { $in: createdBookingIds } });
       await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
       throw error;
@@ -386,13 +415,22 @@ export async function createBooking(req, res) {
         { $inc: { used: 1 } }
       );
       if (!claimedVoucher) {
+        await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Voucher vừa hết lượt sử dụng" });
       }
     }
 
-    return res.status(201).json(serialize(firstBooking));
+    return res.status(201).json({
+      ...serialize(firstBooking),
+      bookingIds,
+      bookingGroupId,
+      groupTotal: calculatedTotal,
+      groupSize: occurrences.length,
+      reservedCourtIds,
+      schedule: occurrences,
+    });
   } catch (e) {
     return res.status(400).json({ message: e.message });
   }
@@ -447,6 +485,27 @@ export async function cancelBooking(req, res) {
     }
     if (refundAmount > 0 && (!req.body.refundStk || !req.body.refundBank)) {
       return res.status(400).json({ message: "Cần số tài khoản và ngân hàng để hoàn tiền" });
+    }
+    if (refundAmount === 0 && booking.bookingGroupId) {
+      const groupBookings = await Booking.find({
+        bookingGroupId: booking.bookingGroupId,
+        status: "pending",
+        paymentStatus: "unpaid",
+      }).select("id");
+      const groupBookingIds = groupBookings.map((item) => item.id);
+      if (groupBookingIds.length) {
+        await Booking.updateMany(
+          { id: { $in: groupBookingIds } },
+          { $set: { status: "cancelled", cancellationReason: "customer_unpaid" } }
+        );
+        await BookingSlot.deleteMany({ bookingId: { $in: groupBookingIds } });
+        await BookingGroup.updateOne(
+          { id: booking.bookingGroupId, paymentStatus: "unpaid" },
+          { $set: { status: "cancelled" } }
+        );
+        const updatedGroupBooking = await Booking.findOne({ id });
+        return res.json({ ...serialize(updatedGroupBooking), cancelledGroupSize: groupBookingIds.length });
+      }
     }
     const updated = await Booking.findOneAndUpdate(
       { id },

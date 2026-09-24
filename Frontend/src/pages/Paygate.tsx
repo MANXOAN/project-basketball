@@ -16,7 +16,6 @@ export default function Paygate() {
   const payload = location.state?.payload;
   const existingBooking = location.state?.booking;
   const balanceBooking = location.state?.balanceBooking;
-  const deposit = location.state?.deposit;
   const total = location.state?.total;
   const paymentDeadline = existingBooking?.paymentExpiresAt || null;
   const [timeLeft, setTimeLeft] = useState(() => paymentDeadline
@@ -63,9 +62,10 @@ export default function Paygate() {
 
   const isBalancePayment = Boolean(balanceBooking);
   const booking = balanceBooking || existingBooking || payload;
+  const bookingTotal = Number(booking.groupTotal || booking.total || total || 0);
   const amountToPay = isBalancePayment
-    ? Math.max(0, Number(balanceBooking.total) - Number(balanceBooking.paidAmount || Math.round(balanceBooking.total * 0.3)))
-    : booking.paymentMethod === "deposit" ? (existingBooking ? Math.round(Number(booking.total) * 0.3) : deposit) : (existingBooking ? Number(booking.total) : total);
+    ? Math.max(0, bookingTotal - Number(booking.paymentStatus === "deposit_paid" ? Math.round(bookingTotal * 0.3) : booking.paidAmount || 0))
+    : booking.paymentMethod === "deposit" ? Math.round(bookingTotal * 0.3) : bookingTotal;
   const paymentKind = isBalancePayment ? "balance" : booking.paymentMethod === "deposit" ? "deposit" : "full";
 
   const handleConfirmPayment = async () => {

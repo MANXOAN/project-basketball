@@ -98,6 +98,12 @@ export type Booking = {
   id: number;
   fieldId: number;
   courtId: number;
+  bookingGroupId?: string;
+  bookingMode?: "single" | "recurring" | "full_field";
+  reservedCourtIds?: number[];
+  groupTotal?: number;
+  groupSize?: number;
+  isGroupPrimary?: boolean;
   fieldName: string;
   court: string;
   date: string;
@@ -148,7 +154,7 @@ export function isSlotConflict(
 export async function getBookedSlots(courtId: number, date: string, force = false) {
   // Dùng 1 request theo ngày (cache) rồi lọc court — tránh N request cho N sân
   const list = await getBookingsByDate(date, force);
-  return list.filter((b) => b.courtId === courtId && b.status !== "cancelled");
+  return list.filter((b) => (b.courtId === courtId || b.reservedCourtIds?.includes(courtId)) && b.status !== "cancelled");
 }
 
 /** Lấy bookings theo ngày — cache 15s, gộp request trùng */
