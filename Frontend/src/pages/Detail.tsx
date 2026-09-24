@@ -5,6 +5,7 @@ import {
   CalendarDays, Map, Loader2, ChevronRight, Star, Camera, MessageCircle, X,
 } from "lucide-react";
 import { api, Court, Field, formatCurrency, TIME_SLOTS, getBookingsByDate, Booking } from "../lib/api";
+import { isPastVietnamSlot, vietnamTodayIso } from "../lib/bookingTime";
 import { getFieldGallery, getFieldReviews } from "../data/demoData";
 import toast from "react-hot-toast";
 
@@ -15,13 +16,22 @@ export default function Detail() {
   const [field, setField] = useState<Field | null>(null);
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(() =>
-    searchParams.get("date") || new Date().toISOString().slice(0, 10)
-  );
+  const [clockNow, setClockNow] = useState(Date.now());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = vietnamTodayIso();
+    const requestedDate = searchParams.get("date");
+    return requestedDate && requestedDate >= today ? requestedDate : today;
+  });
+  const todayIso = vietnamTodayIso(clockNow);
   const preferredTime = searchParams.get("time");
   const [bookedByCourt, setBookedByCourt] = useState<Record<number, Booking[]>>({});
   const [savedHeart, setSavedHeart] = useState(false);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -278,7 +288,7 @@ export default function Detail() {
                 <input
                   type="date"
                   value={selectedDate}
-                  min={new Date().toISOString().slice(0, 10)}
+                  min={todayIso}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-xl px-4 py-2.5 text-sm outline-none transition-all font-medium text-slate-800"
                 />
@@ -292,7 +302,7 @@ export default function Detail() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 bg-slate-100 border-2 border-slate-300 rounded" />
-                  Đã đặt
+                  Đã qua / Đã đặt
                 </div>
               </div>
 
@@ -310,18 +320,21 @@ export default function Detail() {
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3">
                     {TIME_SLOTS.map((t) => {
                       const booked = isBooked(c.id, t);
-                      const preferred = preferredTime === t && !booked;
+                      const elapsed = isPastVietnamSlot(selectedDate, t, clockNow);
+                      const unavailable = booked || elapsed;
+                      const preferred = preferredTime === t && !unavailable;
                       return (
                          <button
                            key={t}
                            type="button"
-                           disabled={booked}
-                           onClick={() =>
-                             navigate(`/booking?fieldId=${field.id}&courtId=${c.id}&date=${selectedDate}&time=${t}`)
-                           }
-                           aria-label={`${booked ? "Đã đặt" : "Đặt"} ${c.name} lúc ${t}`}
+                           disabled={unavailable}
+                           onClick={() => {
+                             if (unavailable) return;
+                             navigate("/booking?fieldId=" + field.id + "&courtId=" + c.id + "&date=" + selectedDate + "&time=" + t);
+                           }}
+                           aria-label={(elapsed ? "Đã qua" : booked ? "Đã đặt" : "Đặt") + " " + c.name + " lúc " + t}
                            className={`slot-btn rounded-xl py-2.5 text-center text-xs font-bold transition-all ${
-                             booked
+                             unavailable
                                ? "bg-zinc-800 text-zinc-600 border border-zinc-700 cursor-not-allowed"
                                : preferred
                                ? "bg-amber-400 text-slate-950 border border-amber-400 ring-4 ring-amber-100"

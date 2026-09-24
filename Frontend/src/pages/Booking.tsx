@@ -8,6 +8,7 @@ import {
   api, Court, Field, formatCurrency, getBookedSlots, getBookingsByDate, invalidateApiCache, isSlotConflict,
 } from "../lib/api";
 import { getUser } from "../lib/auth";
+import { isPastVietnamSlot, vietnamTodayIso } from "../lib/bookingTime";
 
 const DURATIONS = [
   { label: "1 giờ", value: 1 },
@@ -43,21 +44,6 @@ const addDaysIso = (value: string, days: number): string => {
 const getEndTime = (startTime: string, dur: number): number => {
   const [hours, minutes] = startTime.split(":").map(Number);
   return hours + minutes / 60 + dur;
-};
-
-const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-const vietnamTodayIso = (nowMs = Date.now()) =>
-  new Date(nowMs + VIETNAM_OFFSET_MS).toISOString().slice(0, 10);
-
-const isPastVietnamSlot = (slotDate: string, slotTime: string, nowMs = Date.now()) => {
-  if (!slotDate || !slotTime) return false;
-  const vietnamNow = new Date(nowMs + VIETNAM_OFFSET_MS);
-  const today = vietnamNow.toISOString().slice(0, 10);
-  if (slotDate < today) return true;
-  if (slotDate > today) return false;
-  const [hour, minute] = slotTime.split(":").map(Number);
-  return hour * 60 + minute <= vietnamNow.getUTCHours() * 60 + vietnamNow.getUTCMinutes();
 };
 
 export default function Booking() {
