@@ -9,7 +9,7 @@ import Field from "../models/Field";
 import Court from "../models/Court";
 import Payment from "../models/Payment";
 import BookingSlot from "../models/BookingSlot";
-import { cancelBooking, createBooking, expirePendingPayments, getBookingDetail } from "../controllers/booking";
+import { cancelBooking, completeRefund, createBooking, expirePendingPayments, getBookingDetail } from "../controllers/booking";
 import { processVnpayCallback } from "../services/vnpayPayment";
 import { buildPaymentConfirmationEmail } from "../utils/bookingEmail";
 import { setCounter } from "../utils/ids";
@@ -48,6 +48,14 @@ function responseRecorder() {
     json(body) { result.body = body; return this; },
   };
   return { result, res };
+}
+
+function localDateTimeFromNow(offsetMinutes) {
+  const value = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  return {
+    date: [value.getFullYear(), String(value.getMonth() + 1).padStart(2, "0"), String(value.getDate()).padStart(2, "0")].join("-"),
+    time: [String(value.getHours()).padStart(2, "0"), String(value.getMinutes()).padStart(2, "0")].join(":"),
+  };
 }
 
 async function run() {
@@ -272,6 +280,40 @@ async function run() {
       signedQuery("group_full_duplicate", 1500000, "TXNGROUP02")
     );
     assert.equal(duplicateGroupPayment.state, "refund_pending");
+
+    const cancellationCases = [
+      { id: 300, offsetMinutes: 181, role: "user", expectedAmount: 100000, expectedRate: 100, expectedReason: "customer_early_100", body: { refundBank: "VCB", refundStk: "001" } },
+      { id: 301, offsetMinutes: 61, role: "user", expectedAmount: 50000, expectedRate: 50, expectedReason: "customer_late_50", body: { refundBank: "VCB", refundStk: "002", cancellationType: "maintenance" } },
+      { id: 302, offsetMinutes: -1, role: "user", expectedAmount: 0, expectedRate: 0, expectedReason: "customer_no_refund", body: {} },
+      { id: 303, offsetMinutes: 61, role: "manager", expectedAmount: 100000, expectedRate: 100, expectedReason: "maintenance", body: { cancellationType: "maintenance" } },
+    ];
+    for (const testCase of cancellationCases) {
+      const schedule = localDateTimeFromNow(testCase.offsetMinutes);
+      await Booking.create({
+        id: testCase.id, fieldId: 10, courtId: 11, fieldName: "Cơ sở ba sân", court: "Sân 1",
+        date: schedule.date, time: schedule.time, duration: 1, total: 100000, paidAmount: 100000,
+        customer: { fullName: "Khách chính sách", phone: "0955555555", userId: 70 },
+        paymentMethod: "full", paymentStatus: "paid", status: "confirmed",
+      });
+      await BookingSlot.create({ bookingId: testCase.id, courtId: 11, date: schedule.date, time: schedule.time });
+      const cancelPolicyResponse = responseRecorder();
+      await cancelBooking({
+        user: { id: testCase.role === "user" ? 70 : 900, role: testCase.role },
+        params: { id: String(testCase.id) },
+        body: testCase.body,
+      }, cancelPolicyResponse.res);
+      assert.equal(cancelPolicyResponse.result.statusCode, 200);
+      assert.equal(cancelPolicyResponse.result.body.refundAmount, testCase.expectedAmount);
+      assert.equal(cancelPolicyResponse.result.body.refundRate, testCase.expectedRate);
+      assert.equal(cancelPolicyResponse.result.body.refundReason, testCase.expectedReason);
+      assert.equal(cancelPolicyResponse.result.body.refundStatus, testCase.expectedAmount > 0 ? "pending" : "none");
+      assert.equal(await BookingSlot.countDocuments({ bookingId: testCase.id }), 0);
+    }
+
+    const partialRefundResponse = responseRecorder();
+    await completeRefund({ params: { id: "301" } }, partialRefundResponse.res);
+    assert.equal(partialRefundResponse.result.statusCode, 200);
+    assert.equal(partialRefundResponse.result.body.paymentStatus, "partially_refunded");
 
     const email = buildPaymentConfirmationEmail(
       { ...paidBooking.toObject(), customer: { fullName: "<script>alert(1)</script>", phone: "0900000000" } },

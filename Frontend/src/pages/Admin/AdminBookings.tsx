@@ -2,7 +2,7 @@ import type { ThHTMLAttributes } from "react";
 import type { Dayjs } from "dayjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider } from "antd";
-import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, Printer, UserRound } from "lucide-react";
+import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, Printer, UserRound, Wrench } from "lucide-react";
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
 import * as XLSX from 'xlsx';
 import { formatDateVi } from "../../lib/locale";
@@ -24,6 +24,8 @@ export default function AdminBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [refundRequests, setRefundRequests] = useState<Booking[]>([]);
   const [refundModalBooking, setRefundModalBooking] = useState<Booking | null>(null);
+  const [operationsCancelBooking, setOperationsCancelBooking] = useState<Booking | null>(null);
+  const [operationsCancelReason, setOperationsCancelReason] = useState<"owner_cancelled" | "maintenance">("owner_cancelled");
   const [ticketBooking, setTicketBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -125,6 +127,27 @@ export default function AdminBookings() {
       fetchBookings();
     } catch (e: unknown) {
       const errorMessage = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || "Không thể hoàn tiền";
+      message.error(errorMessage);
+    }
+  };
+
+  const cancelForOperations = async () => {
+    if (!operationsCancelBooking) return;
+    try {
+      const response = await api.post<Booking>(`/bookings/${operationsCancelBooking.id}/cancel`, {
+        cancellationType: operationsCancelReason,
+      });
+      const refundAmount = Number(response.data.refundAmount || 0);
+      message.success(
+        refundAmount > 0
+          ? "Đã hủy đơn và tạo yêu cầu hoàn 100% " + formatCurrency(refundAmount)
+          : "Đã hủy đơn và nhả lại khung giờ"
+      );
+      setOperationsCancelBooking(null);
+      setOperationsCancelReason("owner_cancelled");
+      fetchBookings();
+    } catch (e: unknown) {
+      const errorMessage = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || "Không thể hủy đơn";
       message.error(errorMessage);
     }
   };
@@ -243,8 +266,8 @@ export default function AdminBookings() {
             {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
             {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
           </div>
-          <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : r.paymentStatus === "refunded" ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
-            {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : "Chưa thanh toán"}
+          <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : ["refunded", "partially_refunded"].includes(r.paymentStatus) ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+            {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : r.paymentStatus === "partially_refunded" ? "Đã hoàn 50%" : "Chưa thanh toán"}
           </span>
         </div>
       ),
@@ -256,12 +279,17 @@ export default function AdminBookings() {
         if (r.refundStatus === "pending") {
           return (
             <div className="min-w-[190px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              <div className="font-bold">Đang chờ hoàn {formatCurrency(r.refundAmount || 0)}</div>
+              <div className="font-bold">Đang chờ hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div>
               <div className="mt-1.5 space-y-0.5 text-amber-800">
                 {r.refundReason === "duplicate_or_expired_payment" ? (
                   <>
                     <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || "vnpay").toUpperCase()}</div>
                     <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || "Đang cập nhật"}</div>
+                  </>
+                ) : ["owner_cancelled", "maintenance"].includes(r.refundReason || "") ? (
+                  <>
+                    <div><span className="font-semibold">Lý do:</span> {r.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy"}</div>
+                    <div><span className="font-semibold">Hoàn:</span> Phương thức thanh toán gốc</div>
                   </>
                 ) : (
                   <>
@@ -274,7 +302,7 @@ export default function AdminBookings() {
           );
         }
         if (r.refundStatus === "completed") {
-          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}</div><div className="mt-1">{r.refundBank || "—"} · {r.refundStk || "—"}</div></div>;
+          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div><div className="mt-1">{["owner_cancelled", "maintenance"].includes(r.refundReason || "") ? "Phương thức thanh toán gốc" : (r.refundBank || "—") + " · " + (r.refundStk || "—")}</div></div>;
         }
         return <span className="text-xs text-gray-400">Không có</span>;
       },
@@ -301,6 +329,11 @@ export default function AdminBookings() {
           {r.status !== "cancelled" && (
             <Button size="small" className="font-semibold w-full text-xs flex items-center justify-center gap-1" onClick={() => openTicket(r)}>
               <Printer size={12} /> Xem / In vé
+            </Button>
+          )}
+          {(r.status === "pending" || r.status === "confirmed") && (
+            <Button size="small" danger className="font-semibold w-full text-xs flex items-center justify-center gap-1" onClick={() => { setOperationsCancelBooking(r); setOperationsCancelReason("owner_cancelled"); }}>
+              <Wrench size={12} /> Hủy do sân
             </Button>
           )}
           {r.status === "confirmed" && (
@@ -478,6 +511,43 @@ export default function AdminBookings() {
       </Modal>
 
       <Modal
+        open={Boolean(operationsCancelBooking)}
+        onCancel={() => setOperationsCancelBooking(null)}
+        footer={null}
+        width={520}
+        destroyOnClose
+        title={null}
+      >
+        {operationsCancelBooking && (
+          <div className="space-y-5 py-2">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-100 text-rose-600"><Wrench size={21} /></span>
+              <div><div className="text-xs font-bold uppercase tracking-wider text-rose-600">Hủy đơn do phía sân</div><h2 className="mt-1 text-xl font-black text-slate-950">BK{String(operationsCancelBooking.id).padStart(6, "0")}</h2></div>
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Lý do hủy</label>
+              <Select
+                className="w-full"
+                value={operationsCancelReason}
+                onChange={(value) => setOperationsCancelReason(value)}
+                options={[
+                  { value: "owner_cancelled", label: "Chủ sân hủy lịch" },
+                  { value: "maintenance", label: "Bảo trì đột xuất" },
+                ]}
+              />
+            </div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              Khách sẽ được <strong>hoàn 100% số tiền đã thanh toán</strong>, không phụ thuộc thời gian còn lại. Khung giờ được nhả ngay sau khi xác nhận.
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setOperationsCancelBooking(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Quay lại</button>
+              <button type="button" onClick={cancelForOperations} className="min-h-11 flex-1 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white hover:bg-rose-500">Xác nhận hủy</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={Boolean(refundModalBooking)}
         onCancel={() => setRefundModalBooking(null)}
         footer={null}
@@ -506,13 +576,24 @@ export default function AdminBookings() {
               <p className="text-sm leading-6 text-slate-600">
                 {refundModalBooking.refundReason === "duplicate_or_expired_payment"
                   ? "Thực hiện hoàn tiền theo giao dịch gốc trên cổng thanh toán, sau đó xác nhận kết quả cho khách."
-                  : <>Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</>}
+                  : ["owner_cancelled", "maintenance"].includes(refundModalBooking.refundReason || "")
+                    ? "Đơn do phía sân hủy nên khách được hoàn 100%. Hoàn về phương thức thanh toán ban đầu, sau đó xác nhận kết quả."
+                    : <>Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</>}
               </p>
-              {refundModalBooking.refundReason === "duplicate_or_expired_payment" ? (
+              {["duplicate_or_expired_payment", "owner_cancelled", "maintenance"].includes(refundModalBooking.refundReason || "") ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <div>Khách hàng: <strong>{refundModalBooking.customer?.fullName || "—"}</strong></div>
-                  <div className="mt-2">Cổng: <strong>{(refundModalBooking.refundGateway || "vnpay").toUpperCase()}</strong></div>
-                  <div className="mt-2">Mã giao dịch: <strong className="font-mono">{refundModalBooking.refundTransactionCode || "Đang cập nhật"}</strong></div>
+                  {refundModalBooking.refundReason === "duplicate_or_expired_payment" ? (
+                    <>
+                      <div className="mt-2">Cổng: <strong>{(refundModalBooking.refundGateway || "vnpay").toUpperCase()}</strong></div>
+                      <div className="mt-2">Mã giao dịch: <strong className="font-mono">{refundModalBooking.refundTransactionCode || "Đang cập nhật"}</strong></div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy lịch"}</strong></div>
+                      <div className="mt-2">Hoàn tiền: <strong>Phương thức thanh toán ban đầu</strong></div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

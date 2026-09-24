@@ -125,6 +125,7 @@ export type Booking = {
   paidAmount?: number;
   paymentExpiresAt?: string | null;
   refundAmount?: number;
+  refundRate?: number;
   refundStatus?: "none" | "pending" | "completed";
   refundStk?: string;
   refundBank?: string;
@@ -132,6 +133,7 @@ export type Booking = {
   refundTransactionCode?: string;
   refundGateway?: string;
   cancellationReason?: string;
+  cancelledByRole?: string;
   status: string;
   createdAt: string;
 };

@@ -45,6 +45,19 @@ function getBookingStartMs(booking: Booking) {
   return new Date(`${normalizedDate}T${time}:00`).getTime();
 }
 
+function customerRefundPreview(booking: Booking) {
+  const paidAmount = Number(booking.paidAmount) > 0
+    ? Number(booking.paidAmount)
+    : booking.paymentStatus === "deposit_paid"
+      ? Math.round(Number(booking.total) * 0.3)
+      : booking.paymentStatus === "paid"
+        ? Number(booking.total)
+        : 0;
+  const timeUntilStart = getBookingStartMs(booking) - Date.now();
+  const refundRate = paidAmount <= 0 ? 0 : timeUntilStart >= 2 * 60 * 60 * 1000 ? 100 : timeUntilStart > 0 ? 50 : 0;
+  return { paidAmount, refundRate, refundAmount: Math.round(paidAmount * refundRate / 100) };
+}
+
 type BookingDetail = Booking & {
   field?: {
     name: string;
@@ -82,7 +95,7 @@ export default function MyBookings() {
   const [loading, setLoading] = useState(true);
   const user = useMemo(() => getUser(), []);
 
-  const [cancelModal, setCancelModal] = useState({ isOpen: false, bookingId: 0, stk: "", bank: "", needsRefund: false });
+  const [cancelModal, setCancelModal] = useState({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 });
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; code: string | null; booking?: Booking | null }>({
     isOpen: false,
     code: null,
@@ -176,16 +189,20 @@ export default function MyBookings() {
   }, [user, load]);
 
   const openCancelModal = (booking: Booking) => {
-    const needsRefund = booking.paymentStatus === "paid" || booking.paymentStatus === "deposit_paid";
-    if (needsRefund && getBookingStartMs(booking) - Date.now() < 2 * 60 * 60 * 1000) {
-      toast.error("Đơn đã thanh toán chỉ được hủy trước giờ bắt đầu ít nhất 2 tiếng");
-      return;
-    }
-    setCancelModal({ isOpen: true, bookingId: booking.id, stk: "", bank: "", needsRefund });
+    const preview = customerRefundPreview(booking);
+    setCancelModal({
+      isOpen: true,
+      bookingId: booking.id,
+      stk: "",
+      bank: "",
+      paidAmount: preview.paidAmount,
+      refundRate: preview.refundRate,
+      refundAmount: preview.refundAmount,
+    });
   };
 
   const submitCancel = async () => {
-    if (cancelModal.needsRefund && (!cancelModal.stk || !cancelModal.bank)) {
+    if (cancelModal.refundAmount > 0 && (!cancelModal.stk || !cancelModal.bank)) {
       toast.error("Vui lòng nhập Số tài khoản và Ngân hàng để hoàn tiền");
       return;
     }
@@ -197,8 +214,12 @@ export default function MyBookings() {
       setBookings((prev) =>
         prev.map((b) => (b.id === cancelModal.bookingId ? response.data : b))
       );
-      toast.success(cancelModal.needsRefund ? "Đã hủy đơn, yêu cầu hoàn tiền đang được xử lý" : "Đã hủy đơn và nhả lại khung giờ");
-      setCancelModal({ isOpen: false, bookingId: 0, stk: "", bank: "", needsRefund: false });
+      toast.success(
+        Number(response.data.refundAmount || 0) > 0
+          ? "Đã hủy đơn, yêu cầu hoàn " + response.data.refundRate + "% đang được xử lý"
+          : "Đã hủy đơn và nhả lại khung giờ; trường hợp này không phát sinh hoàn tiền"
+      );
+      setCancelModal({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 });
     } catch (error: unknown) {
       const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(message || "Hủy thất bại");
@@ -347,9 +368,7 @@ export default function MyBookings() {
             {bookings.map((b) => {
               const st = statusConfig[b.status] || statusConfig.pending;
               const bookingCode = `BK${String(b.id).padStart(6, "0")}`;
-              const isPaidBooking = b.paymentStatus === "paid" || b.paymentStatus === "deposit_paid";
-              const cancellationDeadlinePassed = isPaidBooking && getBookingStartMs(b) - Date.now() < 2 * 60 * 60 * 1000;
-              const canCancel = (b.status === "pending" || b.status === "confirmed") && !cancellationDeadlinePassed;
+              const canCancel = b.status === "pending" || b.status === "confirmed";
               const canResumePayment = b.status === "pending" && b.paymentStatus === "unpaid" &&
                 (!b.paymentExpiresAt || new Date(b.paymentExpiresAt).getTime() > Date.now());
 
@@ -414,13 +433,13 @@ export default function MyBookings() {
                         role="status"
                       >
                         {b.refundStatus === "pending" && (
-                          <><strong>Đang hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Khoản thanh toán dư/quá hạn không được cộng vào đơn sân hợp lệ." : "Yêu cầu đã được gửi tới quản trị viên."}</>
+                          <><strong>Đang hoàn tiền {formatCurrency(b.refundAmount || 0)}{b.refundRate ? " (" + b.refundRate + "%)" : ""}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Khoản thanh toán dư/quá hạn không được cộng vào đơn sân hợp lệ." : b.refundReason === "maintenance" ? "Sân bảo trì đột xuất, khách được hoàn 100%." : b.refundReason === "owner_cancelled" ? "Chủ sân hủy, khách được hoàn 100%." : "Yêu cầu đã được gửi tới quản trị viên."}</>
                         )}
                         {b.refundStatus === "completed" && (
-                          <><strong>Đã hoàn tiền {formatCurrency(b.refundAmount || 0)}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Đơn sân chính vẫn giữ nguyên hiệu lực." : `Ngân hàng: ${b.refundBank || "—"} · STK: ${b.refundStk || "—"}`}</>
+                          <><strong>Đã hoàn tiền {formatCurrency(b.refundAmount || 0)}{b.refundRate ? " (" + b.refundRate + "%)" : ""}.</strong> {b.refundReason === "duplicate_or_expired_payment" ? "Đơn sân chính vẫn giữ nguyên hiệu lực." : ["maintenance", "owner_cancelled"].includes(b.refundReason || "") ? "Đã hoàn về phương thức thanh toán ban đầu." : `Ngân hàng: ${b.refundBank || "—"} · STK: ${b.refundStk || "—"}`}</>
                         )}
                         {(!b.refundStatus || b.refundStatus === "none") && (
-                          <><strong>Đã hủy đơn.</strong> Đơn chưa phát sinh thanh toán nên không cần hoàn tiền.</>
+                          <><strong>Đã hủy đơn.</strong> {b.refundReason === "customer_no_refund" ? "Đã đến hoặc quá giờ sân nên không hoàn tiền." : "Đơn chưa phát sinh thanh toán nên không cần hoàn tiền."}</>
                         )}
                       </div>
                     )}
@@ -505,11 +524,7 @@ export default function MyBookings() {
                             Hủy đơn
                           </button>
                         )}
-                        {(b.status === "pending" || b.status === "confirmed") && cancellationDeadlinePassed && (
-                          <span className="text-xs font-semibold text-slate-500" role="status">
-                            Đã quá hạn hủy (cần trước giờ sân 2 tiếng)
-                          </span>
-                        )}
+
                       </div>
                     </div>
                   </div>
@@ -653,13 +668,27 @@ export default function MyBookings() {
             <div className="bg-white border border-rose-200 rounded-3xl p-8 max-w-md w-full shadow-xl relative">
               <h3 className="text-xl font-black text-slate-950 mb-2 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-400" />
-                Hủy Đơn & Yêu Cầu Hoàn Tiền
+                Hủy đơn & Chính sách hoàn tiền
               </h3>
               <p className="text-slate-500 text-xs mb-6 leading-relaxed">
-                {cancelModal.needsRefund ? "Bạn được hoàn khoản tiền đã thanh toán nếu hủy trước giờ bắt đầu ít nhất 2 tiếng. Trạng thái hoàn tiền sẽ hiển thị trong đơn của bạn." : "Đơn chưa thanh toán sẽ được hủy ngay và nhả lại khung giờ."}
+                {cancelModal.refundRate === 100
+                  ? "Hủy sớm trước giờ sân ít nhất 2 tiếng: hoàn 100% số tiền đã trả."
+                  : cancelModal.refundRate === 50
+                    ? "Đang sát giờ sân: hoàn 50% số tiền đã trả."
+                    : cancelModal.paidAmount > 0
+                      ? "Đã đến hoặc quá giờ sân: đơn vẫn được hủy nhưng không hoàn tiền."
+                      : "Đơn chưa thanh toán sẽ được hủy ngay và nhả lại khung giờ."}
               </p>
 
-              {cancelModal.needsRefund && <div className="space-y-4 mb-6">
+              {cancelModal.refundAmount > 0 && (
+                <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-700">Dự kiến hoàn {cancelModal.refundRate}%</div>
+                  <div className="mt-1 text-2xl font-black text-amber-900">{formatCurrency(cancelModal.refundAmount)}</div>
+                  <div className="mt-1 text-xs text-amber-800">Backend sẽ kiểm tra lại theo thời điểm bạn xác nhận hủy.</div>
+                </div>
+              )}
+
+              {cancelModal.refundAmount > 0 && <div className="space-y-4 mb-6">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Tên ngân hàng thụ hưởng *
@@ -687,7 +716,7 @@ export default function MyBookings() {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setCancelModal({ isOpen: false, bookingId: 0, stk: "", bank: "", needsRefund: false })}
+                  onClick={() => setCancelModal({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 })}
                   className="flex-1 btn-outline py-3 rounded-xl text-sm"
                 >
                   Đóng

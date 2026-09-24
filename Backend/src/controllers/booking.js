@@ -48,6 +48,31 @@ function refundableAmount(booking) {
   return 0;
 }
 
+const EARLY_CANCELLATION_MS = 2 * 60 * 60 * 1000;
+const STAFF_CANCELLATION_REASONS = new Set(["owner_cancelled", "maintenance"]);
+
+function cancellationPolicy(booking, user, requestedReason, now = Date.now()) {
+  const paidAmount = refundableAmount(booking);
+  const staffReason = isStaff(user) && STAFF_CANCELLATION_REASONS.has(requestedReason)
+    ? requestedReason
+    : null;
+  if (staffReason) {
+    return { refundAmount: paidAmount, refundRate: paidAmount > 0 ? 100 : 0, reason: staffReason, staffCancellation: true };
+  }
+
+  const timeUntilStart = bookingStart(booking.date, booking.time).getTime() - now;
+  if (paidAmount <= 0) {
+    return { refundAmount: 0, refundRate: 0, reason: "customer_unpaid", staffCancellation: false };
+  }
+  if (timeUntilStart >= EARLY_CANCELLATION_MS) {
+    return { refundAmount: paidAmount, refundRate: 100, reason: "customer_early_100", staffCancellation: false };
+  }
+  if (timeUntilStart > 0) {
+    return { refundAmount: Math.round(paidAmount * 0.5), refundRate: 50, reason: "customer_late_50", staffCancellation: false };
+  }
+  return { refundAmount: 0, refundRate: 0, reason: "customer_no_refund", staffCancellation: false };
+}
+
 const SERVICE_PRICES = new Map([
   ["Bóng rổ", 20000],
   ["Áo pitch", 10000],
@@ -502,14 +527,13 @@ export async function cancelBooking(req, res) {
     if (["cancelled", "completed"].includes(booking.status)) {
       return res.status(400).json({ message: "Đơn này không thể hủy" });
     }
-    const refundAmount = refundableAmount(booking);
-    if (refundAmount > 0 && bookingStart(booking.date, booking.time).getTime() - Date.now() < 2 * 60 * 60 * 1000) {
-      return res.status(400).json({ message: "Đơn đã thanh toán chỉ được hủy trước giờ bắt đầu ít nhất 2 tiếng" });
-    }
-    if (refundAmount > 0 && (!req.body.refundStk || !req.body.refundBank)) {
+
+    const policy = cancellationPolicy(booking, req.user, String(req.body.cancellationType || ""));
+    if (policy.refundAmount > 0 && !policy.staffCancellation && (!req.body.refundStk || !req.body.refundBank)) {
       return res.status(400).json({ message: "Cần số tài khoản và ngân hàng để hoàn tiền" });
     }
-    if (refundAmount === 0 && booking.bookingGroupId) {
+
+    if (refundableAmount(booking) === 0 && booking.bookingGroupId) {
       const groupBookings = await Booking.find({
         bookingGroupId: booking.bookingGroupId,
         status: "pending",
@@ -519,7 +543,13 @@ export async function cancelBooking(req, res) {
       if (groupBookingIds.length) {
         await Booking.updateMany(
           { id: { $in: groupBookingIds } },
-          { $set: { status: "cancelled", cancellationReason: "customer_unpaid" } }
+          { $set: {
+            status: "cancelled",
+            cancellationReason: policy.reason,
+            refundReason: policy.reason,
+            refundRate: 0,
+            cancelledByRole: req.user?.role || "user",
+          } }
         );
         await BookingSlot.deleteMany({ bookingId: { $in: groupBookingIds } });
         await BookingGroup.updateOne(
@@ -530,22 +560,33 @@ export async function cancelBooking(req, res) {
         return res.json({ ...serialize(updatedGroupBooking), cancelledGroupSize: groupBookingIds.length });
       }
     }
+
     const updated = await Booking.findOneAndUpdate(
       { id },
       { $set: {
         status: "cancelled",
-        refundStk: req.body.refundStk || "",
-        refundBank: req.body.refundBank || "",
-        refundAmount,
-        refundStatus: refundAmount > 0 ? "pending" : "none",
-        cancellationReason: refundAmount > 0 ? "customer_refund" : "customer_unpaid",
+        refundStk: policy.staffCancellation ? "" : req.body.refundStk || "",
+        refundBank: policy.staffCancellation ? "" : req.body.refundBank || "",
+        refundAmount: policy.refundAmount,
+        refundRate: policy.refundRate,
+        refundStatus: policy.refundAmount > 0 ? "pending" : "none",
+        refundReason: policy.reason,
+        cancellationReason: policy.reason,
+        cancelledByRole: req.user?.role || "user",
       } },
       { new: true }
     );
     await BookingSlot.deleteMany({ bookingId: id });
-    if (updated.customer?.email && refundAmount > 0) {
-      sendMail(updated.customer.email, `Xác nhận hủy đơn BK${String(updated.id).padStart(6, "0")}`,
-        `Xin chào ${updated.customer.fullName},<br/>Yêu cầu hủy đơn đã được ghi nhận. Hệ thống sẽ hoàn ${refundAmount.toLocaleString("vi-VN")} VNĐ vào ${updated.refundBank} - ${updated.refundStk}.`);
+
+    if (updated.customer?.email && policy.refundAmount > 0) {
+      const destination = policy.staffCancellation
+        ? "phương thức thanh toán ban đầu"
+        : (updated.refundBank + " - " + updated.refundStk);
+      sendMail(
+        updated.customer.email,
+        `Xác nhận hủy đơn BK${String(updated.id).padStart(6, "0")}`,
+        `Xin chào ${updated.customer.fullName},<br/>Đơn đã được hủy với mức hoàn ${policy.refundRate}%. Hệ thống sẽ hoàn ${policy.refundAmount.toLocaleString("vi-VN")} VNĐ về ${destination}.`
+      );
     }
     return res.json(serialize(updated));
   } catch (e) {
@@ -563,11 +604,14 @@ export async function completeRefund(req, res) {
         (booking.status !== "cancelled" && !isDuplicatePaymentRefund)) {
       return res.status(400).json({ message: "Đơn không có yêu cầu hoàn tiền đang chờ" });
     }
+    const completedPaymentStatus = Number(booking.refundAmount) > 0 && Number(booking.refundAmount) < refundableAmount(booking)
+      ? "partially_refunded"
+      : "refunded";
     const updated = await Booking.findOneAndUpdate(
       { id },
       { $set: {
         refundStatus: "completed",
-        ...(booking.status === "cancelled" ? { paymentStatus: "refunded" } : {}),
+        ...(booking.status === "cancelled" ? { paymentStatus: completedPaymentStatus } : {}),
       } },
       { new: true }
     );
