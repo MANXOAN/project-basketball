@@ -12,8 +12,7 @@ export default function AdminEmployees() {
     const fetchUsers = async () => {
         try {
             const res = await api.get("/users");
-            // only show admins and staff, or show everyone with role selection
-            setUsers(res.data.filter((u: any) => u.role !== 'user'));
+            setUsers(res.data);
         } catch {
             message.error("Lỗi lấy danh sách");
         } finally {
@@ -31,12 +30,12 @@ export default function AdminEmployees() {
                 name: values.fullName || values.name,
                 fullName: values.fullName || values.name,
                 email: values.email,
-                password: values.password || "12345678",
-                phone: values.phone || "0900000000",
-                role: values.role || "staff",
+                password: values.password,
+                phone: values.phone || "",
+                role: values.role || "manager",
             };
     
-            await api.post("/register", payload);
+            await api.post("/users", payload);
     
             message.success("Tạo nhân viên thành công!");
             setIsModalOpen(false);
@@ -55,7 +54,7 @@ export default function AdminEmployees() {
 
     const changeRole = async (id: number, newRole: string) => {
         try {
-            await api.patch(`/users/${id}`, { role: newRole });
+            await api.patch(`/users/${id}/role`, { role: newRole });
             message.success("Thay đổi quyền thành công");
             fetchUsers();
         } catch {
@@ -83,9 +82,9 @@ export default function AdminEmployees() {
                     onChange={v => changeRole(record.id, v)}
                     className="w-40 font-bold"
                     options={[
-                        { value: 'admin', label: <span className="text-red-600 flex items-center"><ShieldCheck size={14} className="mr-1" /> Quản lý (Admin)</span> },
-                        { value: 'accountant', label: <span className="text-blue-600 flex items-center"><Lock size={14} className="mr-1" /> Kế toán</span> },
-                        { value: 'receptionist', label: <span className="text-emerald-600 flex items-center"><Users size={14} className="mr-1" /> Lễ tân (POS)</span> }
+                        { value: 'admin', label: <span className="text-red-600 flex items-center"><ShieldCheck size={14} className="mr-1" /> Quản trị hệ thống</span> },
+                        { value: 'manager', label: <span className="text-blue-600 flex items-center"><Lock size={14} className="mr-1" /> Quản lý sân</span> },
+                        { value: 'user', label: <span className="text-emerald-600 flex items-center"><Users size={14} className="mr-1" /> Khách hàng</span> }
                     ]}
                 />
             )
@@ -94,9 +93,8 @@ export default function AdminEmployees() {
             title: "Quyền hạn",
             dataIndex: "role",
             render: (r: string) => {
-                if (r === 'admin') return <Tag color="red">Toàn quyền</Tag>;
-                if (r === 'accountant') return <Tag color="blue">Xem Báo Cáo, Không Đổi Lịch</Tag>;
-                if (r === 'receptionist') return <Tag color="green">Chỉ Tạo Đơn, Cập Nhật Lịch</Tag>;
+                if (r === 'admin') return <Tag color="red">Quản trị hệ thống</Tag>;
+                if (r === 'manager') return <Tag color="blue">Quản lý sân và lịch</Tag>;
                 return <Tag>Khách hàng</Tag>;
             }
         }
@@ -120,7 +118,7 @@ export default function AdminEmployees() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                {[{ label: "Nhân sự đang quản lý", value: users.length, icon: Users }, { label: "Quản lý cấp cao", value: users.filter((u) => u.role === "admin").length, icon: ShieldCheck }, { label: "Đang hoạt động", value: users.length, icon: Activity }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+                {[{ label: "Tổng tài khoản", value: users.length, icon: Users }, { label: "Quản trị hệ thống", value: users.filter((u) => u.role === "admin").length, icon: ShieldCheck }, { label: "Quản lý sân", value: users.filter((u) => u.role === "manager").length, icon: Activity }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
             </div>
             <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
                 <Table
@@ -141,18 +139,21 @@ export default function AdminEmployees() {
                 footer={null}
                 className="rounded-2xl"
             >
-                <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4" initialValues={{ role: 'receptionist' }}>
+                <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4" initialValues={{ role: 'manager' }}>
                     <Form.Item name="fullName" label="Tên nhân viên" rules={[{ required: true }]}>
                         <Input size="large" className="rounded-xl" />
                     </Form.Item>
                     <Form.Item name="email" label="Email đăng nhập" rules={[{ required: true, type: 'email' }]}>
                         <Input size="large" className="rounded-xl" />
                     </Form.Item>
+                    <Form.Item name="password" label="Mật khẩu ban đầu" rules={[{ required: true }, { min: 6, message: "Tối thiểu 6 ký tự" }]}>
+                        <Input.Password size="large" className="rounded-xl" autoComplete="new-password" />
+                    </Form.Item>
                     <Form.Item name="role" label={<span className="font-semibold text-gray-700 mt-2">Vai trò</span>} rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl">
-                            <Select.Option value="admin">Quản lý (Admin) - Toàn quyền</Select.Option>
-                            <Select.Option value="accountant">Kế toán - Chỉ xem báo cáo</Select.Option>
-                            <Select.Option value="receptionist">Lễ tân - Chỉ trực quầy POS</Select.Option>
+                            <Select.Option value="admin">Admin - Quản trị hệ thống</Select.Option>
+                            <Select.Option value="manager">Quản lý sân - Quản lý sân và lịch</Select.Option>
+                            <Select.Option value="user">User - Khách hàng</Select.Option>
                         </Select>
                     </Form.Item>
                     <Button type="primary" htmlType="submit" size="large" block className="mt-4 bg-gradient-to-r from-cyan-600 to-blue-600 border-0 shadow-lg shadow-cyan-500/30 h-12 text-lg font-black rounded-2xl">

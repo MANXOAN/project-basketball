@@ -155,7 +155,7 @@ export async function getBookingsByDate(date: string, force = false) {
   return cachedGet(
     key,
     async () => {
-      const res = await api.get<Booking[]>("/bookings", { params: { date } });
+      const res = await api.get<Booking[]>("/bookings/availability", { params: { date } });
       return res.data;
     },
     15_000

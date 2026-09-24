@@ -7,6 +7,22 @@
       "fullName": "Admin System",
       "phone": "0812288111",
       "role": "admin"
+    },
+    {
+      "id": 2,
+      "email": "manager@gmail.com",
+      "password": "$2a$10$i1KvrCD4Q4dY7y79PNYG.OqRWYYnKwyTICxp7Lb0rmVtBdi5VshVe",
+      "fullName": "Quản lý sân",
+      "phone": "0900000002",
+      "role": "manager"
+    },
+    {
+      "id": 4,
+      "email": "nguyentu0813@gamil.com",
+      "password": "$2a$10$i1KvrCD4Q4dY7y79PNYG.OqRWYYnKwyTICxp7Lb0rmVtBdi5VshVe",
+      "fullName": "h",
+      "phone": "0123456789",
+      "role": "user"
     }
   ],
   "fields": [

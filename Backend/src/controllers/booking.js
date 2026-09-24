@@ -54,6 +54,37 @@ function refundableAmount(booking) {
   return 0;
 }
 
+const SERVICE_PRICES = new Map([
+  ["Bóng rổ", 20000],
+  ["Áo pitch", 10000],
+  ["Nước lọc", 10000],
+  ["Nước muối khoáng", 15000],
+]);
+
+function isStaff(user) {
+  return user?.role === "admin" || user?.role === "manager";
+}
+
+function canAccessBooking(user, booking) {
+  return isStaff(user) || Number(booking.customer?.userId) === Number(user?.id);
+}
+
+function sanitizeServices(services) {
+  if (!Array.isArray(services)) return [];
+  return services.flatMap((service) => {
+    const name = String(service?.name || "").trim();
+    const price = SERVICE_PRICES.get(name);
+    const quantity = Math.min(100, Math.max(0, Math.floor(Number(service?.quantity) || 0)));
+    return price && quantity ? [{ name, quantity, price }] : [];
+  });
+}
+
+function splitAmount(amount, count, index) {
+  const whole = Math.max(0, Math.round(Number(amount) || 0));
+  const base = Math.floor(whole / count);
+  return base + (index < whole % count ? 1 : 0);
+}
+
 export async function expirePendingPayments() {
   const expired = await Booking.find({
     status: "pending",
@@ -78,11 +109,30 @@ export async function getBookings(req, res) {
   try {
     await expirePendingPayments();
     const filter = {};
+    if (!isStaff(req.user)) {
+      filter["customer.userId"] = Number(req.user.id);
+    }
     if (req.query.date) filter.date = req.query.date;
     if (req.query.courtId) filter.courtId = Number(req.query.courtId);
     if (req.query.fieldId) filter.fieldId = Number(req.query.fieldId);
     if (req.query.status) filter.status = req.query.status;
     const list = await Booking.find(filter).sort({ id: -1 });
+    return res.json(serializeMany(list));
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function getBookingAvailability(req, res) {
+  try {
+    await expirePendingPayments();
+    const filter = { status: { $ne: "cancelled" } };
+    if (req.query.date) filter.date = String(req.query.date);
+    if (req.query.courtId) filter.courtId = Number(req.query.courtId);
+    if (!filter.date) return res.status(400).json({ message: "Thiếu ngày cần kiểm tra" });
+    const list = await Booking.find(filter)
+      .select("id courtId date time duration status")
+      .sort({ time: 1 });
     return res.json(serializeMany(list));
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -95,6 +145,9 @@ export async function getBooking(req, res) {
     const id = Number(req.params.id);
     const b = await Booking.findOne({ id });
     if (!b) return res.status(404).json({ message: "Not found" });
+    if (!canAccessBooking(req.user, b)) {
+      return res.status(403).json({ message: "Bạn không có quyền xem đơn này" });
+    }
     return res.json(serialize(b));
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -108,7 +161,9 @@ export async function getBookingDetail(req, res) {
     const id = Number(req.params.id);
     const booking = await Booking.findOne({ id });
     if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
-
+    if (!canAccessBooking(req.user, booking)) {
+      return res.status(403).json({ message: "Bạn không có quyền xem đơn này" });
+    }
     const [field, court] = await Promise.all([
       Field.findOne({ id: booking.fieldId }),
       Court.findOne({ id: booking.courtId }),
@@ -158,25 +213,25 @@ export async function createBooking(req, res) {
     const {
       fieldId,
       courtId,
-      fieldName,
-      court,
       date,
       recurringDates,
       time,
       duration,
-      total,
       customer,
       services,
       paymentMethod,
       voucherCode,
-      discount,
     } = req.body;
 
-    const targetDates = (recurringDates && recurringDates.length > 0) ? recurringDates : [date];
+    const requestedDates = Array.isArray(recurringDates) && recurringDates.length ? recurringDates : [date];
+    const targetDates = [...new Set(requestedDates.map((value) => String(value || "")))];
     const dur = Number(duration) || 1;
     const numericCourtId = Number(courtId);
     const numericFieldId = Number(fieldId);
 
+    if (!targetDates.length || targetDates.length > 60 || targetDates.some((value) => !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      return res.status(400).json({ message: "Danh sách ngày đặt sân không hợp lệ" });
+    }
     if (!Number.isFinite(dur) || dur <= 0 || dur > 8 || !validTime(time)) {
       return res.status(400).json({ message: "Khung giờ hoặc thời lượng đặt sân không hợp lệ" });
     }
@@ -200,6 +255,45 @@ export async function createBooking(req, res) {
     const start = toMin(time);
     if (start < open || start + dur * 60 > close) {
       return res.status(400).json({ message: `Khung giờ phải nằm trong giờ hoạt động ${selectedField.openTime}–${selectedField.closeTime}` });
+    }
+
+    const normalizedServices = sanitizeServices(services);
+    const servicesTotal = normalizedServices.reduce((sum, service) => sum + service.price * service.quantity, 0);
+    const grossTotal = Math.round(Number(selectedCourt.price) * dur * targetDates.length + servicesTotal);
+    const normalizedVoucherCode = String(voucherCode || "").trim();
+    let voucher = null;
+    let calculatedDiscount = 0;
+    if (normalizedVoucherCode) {
+      voucher = await Voucher.findOne({ code: normalizedVoucherCode, status: "active" });
+      if (!voucher || Number(voucher.used) >= Number(voucher.limit)) {
+        return res.status(400).json({ message: "Voucher không hợp lệ hoặc đã hết lượt sử dụng" });
+      }
+      calculatedDiscount = voucher.type === "percent"
+        ? Math.round(grossTotal * Math.min(100, Math.max(0, Number(voucher.discount))) / 100)
+        : Math.max(0, Number(voucher.discount));
+      calculatedDiscount = Math.min(grossTotal, Math.round(calculatedDiscount));
+    }
+    const calculatedTotal = Math.max(0, grossTotal - calculatedDiscount);
+    const suppliedCustomer = customer && typeof customer === "object" ? customer : {};
+    const requesterIsStaff = isStaff(req.user);
+    const bookingCustomer = {
+      fullName: String(suppliedCustomer.fullName || req.user.fullName || "").trim().slice(0, 120),
+      phone: String(suppliedCustomer.phone || "").trim().slice(0, 30),
+      note: String(suppliedCustomer.note || "").trim().slice(0, 1000),
+      userId: requesterIsStaff ? (Number(suppliedCustomer.userId) || undefined) : Number(req.user.id),
+      email: requesterIsStaff
+        ? (String(suppliedCustomer.email || "").trim().toLowerCase() || undefined)
+        : String(req.user.email || "").trim().toLowerCase(),
+    };
+    if (requesterIsStaff && bookingCustomer.email === String(req.user.email || "").toLowerCase()) {
+      bookingCustomer.userId = Number(req.user.id);
+    }
+    if (!bookingCustomer.fullName || bookingCustomer.phone.length < 9) {
+      return res.status(400).json({ message: "Tên và số điện thoại khách hàng không hợp lệ" });
+    }
+    const normalizedPaymentMethod = String(paymentMethod || "");
+    if (!["cash", "deposit", "full"].includes(normalizedPaymentMethod)) {
+      return res.status(400).json({ message: "Phương thức thanh toán không hợp lệ" });
     }
 
     for (const d of targetDates) {
@@ -240,7 +334,7 @@ export async function createBooking(req, res) {
     }
 
     let firstBooking = null;
-    const singleTotal = Number(total) / targetDates.length || 0;
+    const createdBookingIds = [];
 
     try {
       for (const [index, d] of targetDates.entries()) {
@@ -253,31 +347,38 @@ export async function createBooking(req, res) {
         date: d,
         time,
         duration: dur,
-        total: singleTotal,
-        customer: customer || {},
-        services: services || [],
-        paymentMethod: paymentMethod || "cash",
+        total: splitAmount(calculatedTotal, targetDates.length, index),
+        customer: bookingCustomer,
+        services: normalizedServices,
+        paymentMethod: normalizedPaymentMethod,
         paymentStatus: "unpaid",
         paidAmount: 0,
-        paymentExpiresAt: paymentMethod === "cash" ? null : new Date(Date.now() + 15 * 60 * 1000),
+        paymentExpiresAt: normalizedPaymentMethod === "cash" ? null : new Date(Date.now() + 15 * 60 * 1000),
         status: "pending",
-        voucherCode: voucherCode || "",
-        discount: discount || 0,
+        voucherCode: normalizedVoucherCode,
+        discount: splitAmount(calculatedDiscount, targetDates.length, index),
+        createdBy: Number(req.user.id),
         createdAt: new Date().toISOString(),
       });
+        createdBookingIds.push(booking.id);
         if (!firstBooking) firstBooking = booking;
       }
     } catch (error) {
+      await Booking.deleteMany({ id: { $in: createdBookingIds } });
       await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
       throw error;
     }
 
-    // Cập nhật lượt dùng của voucher
-    if (voucherCode) {
-      await Voucher.findOneAndUpdate(
-        { code: voucherCode },
+    if (voucher) {
+      const claimedVoucher = await Voucher.findOneAndUpdate(
+        { id: voucher.id, status: "active", used: { $lt: voucher.limit } },
         { $inc: { used: 1 } }
       );
+      if (!claimedVoucher) {
+        await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
+        return res.status(409).json({ message: "Voucher vừa hết lượt sử dụng" });
+      }
     }
 
     return res.status(201).json(serialize(firstBooking));
@@ -292,19 +393,24 @@ export async function updateBooking(req, res) {
     const current = await Booking.findOne({ id });
     if (!current) return res.status(404).json({ message: "Not found" });
 
-    if (current.status === "cancelled" && req.body.status && req.body.status !== "cancelled") {
-      return res.status(400).json({ message: "Đơn đã hủy không thể thay đổi trạng thái" });
+    if (current.status === "cancelled") {
+      return res.status(400).json({ message: "Đơn đã hủy không thể chỉnh sửa" });
     }
 
-    const forbidden = ["status", "paymentStatus", "paidAmount", "refundAmount", "refundStatus", "checkedInAt"];
-    if (forbidden.some((key) => Object.prototype.hasOwnProperty.call(req.body, key))) {
-      return res.status(400).json({ message: "Trạng thái đơn và thanh toán được cập nhật tự động qua luồng nghiệp vụ" });
+    const requestedCustomer = req.body.customer;
+    if (!requestedCustomer || typeof requestedCustomer !== "object") {
+      return res.status(400).json({ message: "Chỉ cho phép cập nhật thông tin liên hệ của khách hàng" });
     }
+    const updates = {
+      "customer.fullName": String(requestedCustomer.fullName ?? current.customer?.fullName ?? "").trim().slice(0, 120),
+      "customer.phone": String(requestedCustomer.phone ?? current.customer?.phone ?? "").trim().slice(0, 30),
+      "customer.note": String(requestedCustomer.note ?? current.customer?.note ?? "").trim().slice(0, 1000),
+    };
 
     const b = await Booking.findOneAndUpdate(
       { id },
-      { $set: req.body },
-      { new: true }
+      { $set: updates },
+      { new: true, runValidators: true }
     );
 
     return res.json(serialize(b));
@@ -318,6 +424,9 @@ export async function cancelBooking(req, res) {
     const id = Number(req.params.id);
     const booking = await Booking.findOne({ id });
     if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
+    if (!canAccessBooking(req.user, booking)) {
+      return res.status(403).json({ message: "Bạn không có quyền hủy đơn này" });
+    }
     if (["cancelled", "completed"].includes(booking.status)) {
       return res.status(400).json({ message: "Đơn này không thể hủy" });
     }

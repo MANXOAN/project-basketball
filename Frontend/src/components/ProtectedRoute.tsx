@@ -1,19 +1,19 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { isAdmin, isLoggedIn } from "../lib/auth";
+import { AuthUser, getUser, isLoggedIn } from "../lib/auth";
 
 type Props = {
   children: React.ReactNode;
-  adminOnly?: boolean;
+  allowedRoles?: NonNullable<AuthUser["role"]>[];
 };
 
-export default function ProtectedRoute({ children, adminOnly = false }: Props) {
+export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const location = useLocation();
 
   if (!isLoggedIn()) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
-  if (adminOnly && !isAdmin()) {
+  if (allowedRoles && !allowedRoles.includes(getUser()?.role || "user")) {
     return <Navigate to="/" replace />;
   }
 

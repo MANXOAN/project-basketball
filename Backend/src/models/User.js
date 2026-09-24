@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: "" },
     resetToken: { type: String, default: "" },
     resetTokenExpiresAt: { type: Date, default: null },
-    role: { type: String, enum: ["admin", "user"], default: "user" },
+    role: { type: String, enum: ["admin", "manager", "user"], default: "user" },
   },
   { timestamps: true, versionKey: false }
 );

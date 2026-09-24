@@ -6,13 +6,14 @@ import {
   updateField,
   deleteField,
 } from "../controllers/field";
+import { managerRequired } from "../middleware/auth";
 
 const router = Router();
 router.get("/", getFields);
 router.get("/:id", getField);
-router.post("/", createField);
-router.put("/:id", updateField);
-router.patch("/:id", updateField);
-router.delete("/:id", deleteField);
+router.post("/", managerRequired, createField);
+router.put("/:id", managerRequired, updateField);
+router.patch("/:id", managerRequired, updateField);
+router.delete("/:id", managerRequired, deleteField);
 
 export default router;

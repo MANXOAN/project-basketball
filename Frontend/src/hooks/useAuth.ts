@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { AuthUser, clearAuth, getUser, isAdmin, isLoggedIn } from "../lib/auth";
+import { AuthUser, clearAuth, getUser, isAdmin, isLoggedIn, isManager, isStaff } from "../lib/auth";
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(() => getUser());
@@ -27,11 +27,15 @@ export function useAuth() {
 
   const admin = useMemo(() => isAdmin(user), [user]);
 
+  const manager = useMemo(() => isManager(user), [user]);
+  const staff = useMemo(() => isStaff(user), [user]);
   return {
     user,
     loggedIn,
     isAdmin: admin,
     logout,
+    isManager: manager,
+    isStaff: staff,
     refresh,
   };
 }

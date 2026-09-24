@@ -55,7 +55,11 @@ function App() {
           <Route path="field/:id" element={<Detail />} />
           <Route path="detail/:id" element={<Detail />} />
           <Route path="detail" element={<Detail />} />
-          <Route path="booking" element={<Booking />} />
+          <Route path="booking" element={
+            <ProtectedRoute>
+              <Booking />
+            </ProtectedRoute>
+          } />
           <Route path="tim-san" element={<List />} />
           <Route path="fields" element={<FieldPage />} />
           <Route path="clubs" element={<CommunityHub mode="clubs" />} />
@@ -69,7 +73,11 @@ function App() {
           <Route path="contact" element={<Contact />} />
           <Route path="terms" element={<Terms />} />
           <Route path="privacy" element={<Privacy />} />
-          <Route path="paygate" element={<Paygate />} />
+          <Route path="paygate" element={
+            <ProtectedRoute>
+              <Paygate />
+            </ProtectedRoute>
+          } />
           <Route
             path="profile"
             element={
@@ -100,7 +108,7 @@ function App() {
         <Route
           path="/admin"
           element={
-            <ProtectedRoute adminOnly>
+            <ProtectedRoute allowedRoles={["admin", "manager"]}>
               <AdminLayout />
             </ProtectedRoute>
           }
@@ -109,10 +117,22 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="bookings" element={<AdminBookings />} />
-          <Route path="courts" element={<Courts />} />
+          <Route path="courts" element={
+            <ProtectedRoute allowedRoles={["manager"]}>
+              <Courts />
+            </ProtectedRoute>
+          } />
           <Route path="customers" element={<AdminCustomers />} />
-          <Route path="vouchers" element={<AdminVouchers />} />
-          <Route path="employees" element={<AdminEmployees />} />
+          <Route path="vouchers" element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminVouchers />
+            </ProtectedRoute>
+          } />
+          <Route path="employees" element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminEmployees />
+            </ProtectedRoute>
+          } />
         </Route>
       </Routes>
       </Suspense>

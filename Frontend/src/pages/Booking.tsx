@@ -216,27 +216,21 @@ export default function Booking() {
       }
 
       const voucher = res.data[0];
-      const now = new Date().toISOString().slice(0, 10);
-
-      if (voucher.validUntil && voucher.validUntil < now) {
-        toast.error("Mã khuyến mãi đã hết hạn sử dụng!");
+      if (voucher.status !== "active") {
+        toast.error("Mã khuyến mãi chưa được kích hoạt!");
         setVoucherLoading(false);
         return;
       }
 
-      if (voucher.usageLimit !== undefined && voucher.usedCount >= voucher.usageLimit) {
+      if (Number(voucher.used) >= Number(voucher.limit)) {
         toast.error("Mã khuyến mãi đã hết lượt sử dụng!");
         setVoucherLoading(false);
         return;
       }
 
-      let discountAmount = 0;
-      if (voucher.discountPercent) {
-        discountAmount = Math.round((subTotal * voucher.discountPercent) / 100);
-      } else if (voucher.discountAmount) {
-        discountAmount = voucher.discountAmount;
-      }
-
+      let discountAmount = voucher.type === "percent"
+        ? Math.round((subTotal * Number(voucher.discount)) / 100)
+        : Number(voucher.discount);
       discountAmount = Math.min(discountAmount, subTotal);
 
       setAppliedVoucher({

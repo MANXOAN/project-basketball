@@ -8,7 +8,7 @@ import { useAuth } from "../hooks/useAuth";
 import toast from "react-hot-toast";
 
 export default function Header() {
-  const { user, loggedIn, isAdmin, logout } = useAuth();
+  const { user, loggedIn, isStaff, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -25,10 +25,10 @@ export default function Header() {
       navigate("/login", { state: { from: "/admin" } });
       return;
     }
-    if (isAdmin) {
+    if (isStaff) {
       navigate("/admin");
     } else {
-      toast.error("Tài khoản của bạn không có quyền Admin");
+      toast.error("Tài khoản của bạn không có quyền quản trị");
     }
     setMobileOpen(false);
   };
@@ -107,12 +107,12 @@ export default function Header() {
                   Đơn của tôi
                 </Link>
 
-                {isAdmin && (
+                {isStaff && (
                   <button
                     onClick={goAdmin}
                     className="flex items-center gap-1.5 text-sm font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-2 rounded-xl transition-all"
                   >
-                    <Shield className="w-4 h-4" /> Admin
+                    <Shield className="w-4 h-4" /> Quản trị
                   </button>
                 )}
 
@@ -201,12 +201,12 @@ export default function Header() {
                   >
                     <User className="w-4 h-4" /> {user?.fullName || "Tài khoản"}
                   </Link>
-                  {isAdmin && (
+                  {isStaff && (
                     <button
                       onClick={goAdmin}
                       className="w-full flex items-center gap-3 text-sm font-semibold text-amber-700 hover:bg-amber-50 px-3 py-3 rounded-lg transition-all"
                     >
-                      <Shield className="w-4 h-4" /> Trang Admin
+                      <Shield className="w-4 h-4" /> Trang quản trị
                     </button>
                   )}
                   <button

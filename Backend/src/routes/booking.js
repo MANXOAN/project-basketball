@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getBookings,
+  getBookingAvailability,
   getBooking,
   getBookingDetail,
   getRefundRequests,
@@ -11,19 +12,20 @@ import {
   completeRefund,
   checkInBooking,
 } from "../controllers/booking";
-import { adminRequired } from "../middleware/auth";
+import { adminRequired, authRequired, staffRequired } from "../middleware/auth";
 
 const router = Router();
-router.get("/", getBookings);
-router.get("/refunds", adminRequired, getRefundRequests);
-router.get("/:id/detail", getBookingDetail);
-router.get("/:id", getBooking);
-router.post("/", createBooking);
-router.post("/:id/cancel", cancelBooking);
+router.get("/", authRequired, getBookings);
+router.get("/availability", getBookingAvailability);
+router.get("/refunds", staffRequired, getRefundRequests);
+router.get("/:id/detail", authRequired, getBookingDetail);
+router.get("/:id", authRequired, getBooking);
+router.post("/", authRequired, createBooking);
+router.post("/:id/cancel", authRequired, cancelBooking);
 router.post("/:id/refund", adminRequired, completeRefund);
-router.post("/:id/check-in", adminRequired, checkInBooking);
-router.put("/:id", updateBooking);
-router.patch("/:id", updateBooking);
-router.delete("/:id", deleteBooking);
+router.post("/:id/check-in", staffRequired, checkInBooking);
+router.put("/:id", staffRequired, updateBooking);
+router.patch("/:id", staffRequired, updateBooking);
+router.delete("/:id", adminRequired, deleteBooking);
 
 export default router;

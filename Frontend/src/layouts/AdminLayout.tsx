@@ -8,7 +8,7 @@ const { Header, Sider, Content } = Layout;
 export default function AdminLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout } = useAuth();
+    const { logout, user } = useAuth();
 
     const menuItems = [
         {
@@ -47,6 +47,12 @@ export default function AdminLayout() {
             label: <Link to="/admin/employees" className="text-sm font-semibold">Phân quyền</Link>,
         },
     ];
+
+    const visibleMenuItems = menuItems.filter((item) => {
+        if (item.key === "/admin/courts") return user?.role === "manager";
+        if (item.key === "/admin/vouchers" || item.key === "/admin/employees") return user?.role === "admin";
+        return true;
+    });
 
     const userMenu = [
         {
@@ -101,7 +107,7 @@ export default function AdminLayout() {
                         theme="dark"
                         mode="inline"
                         selectedKeys={[location.pathname]}
-                        items={menuItems}
+                        items={visibleMenuItems}
                         style={{ background: 'transparent' }}
                         className="border-none space-y-1 font-semibold !bg-transparent text-gray-400"
                     />
@@ -132,11 +138,11 @@ export default function AdminLayout() {
                         <Dropdown menu={{ items: userMenu }} placement="bottomRight" arrow>
                             <div className="flex items-center gap-3 cursor-pointer bg-black/60 hover:bg-black/90 p-1.5 pr-4 rounded-xl transition-all border border-white/10">
                                 <Avatar size={34} className="bg-gradient-to-br from-yellow-400 to-amber-600 text-black font-black">
-                                    AD
+                                    {(user?.fullName || user?.email || "U")[0].toUpperCase()}
                                 </Avatar>
                                 <div className="hidden sm:block text-left">
-                                    <div className="text-xs font-bold text-white leading-none mb-1">Quản Trị Viên</div>
-                                    <div className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider leading-none">Super Admin</div>
+                                    <div className="text-xs font-bold text-white leading-none mb-1">{user?.fullName || user?.email}</div>
+                                    <div className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider leading-none">{user?.role === "manager" ? "Quản lý sân" : "Quản trị hệ thống"}</div>
                                 </div>
                             </div>
                         </Dropdown>

@@ -4,7 +4,7 @@ export type AuthUser = {
   fullName?: string;
   phone?: string;
   avatar?: string;
-  role?: "admin" | "user" | string;
+  role?: "admin" | "manager" | "user";
 };
 
 export function getToken(): string | null {
@@ -37,6 +37,16 @@ export function isAdmin(user?: AuthUser | null): boolean {
   const u = user === undefined ? getUser() : user;
   if (!u) return false;
   return u.role === "admin";
+}
+
+export function isManager(user?: AuthUser | null): boolean {
+  const u = user === undefined ? getUser() : user;
+  return u?.role === "manager";
+}
+
+export function isStaff(user?: AuthUser | null): boolean {
+  const u = user === undefined ? getUser() : user;
+  return u?.role === "admin" || u?.role === "manager";
 }
 
 export function isLoggedIn(): boolean {

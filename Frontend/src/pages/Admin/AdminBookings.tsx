@@ -215,8 +215,8 @@ export default function AdminBookings() {
       render: (_: unknown, r: Booking) => (
         <div className="flex flex-col gap-1 items-start min-w-[140px]">
           <div className="text-[11px] font-medium text-gray-500 flex items-center mb-1 bg-gray-50 px-2 py-0.5 rounded">
-            {r.paymentMethod === "transfer" || r.paymentMethod === "deposit" ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
-            {r.paymentMethod === "transfer" ? "Chuyển khoản" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
+            {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
+            {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
           </div>
           <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : r.paymentStatus === "refunded" ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
             {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : "Chưa thanh toán"}
@@ -533,8 +533,8 @@ export default function AdminBookings() {
             </Form.Item>
             <Form.Item name="paymentMethod" label={<span className="font-semibold text-gray-700">Thanh toán</span>} rules={[{ required: true }]}>
               <Select size="large" className="rounded-xl">
-                <Select.Option value="cash">Tiền mặt (Đã thu)</Select.Option>
-                <Select.Option value="transfer">Chuyển khoản</Select.Option>
+                <Select.Option value="cash">Tiền mặt tại sân</Select.Option>
+                <Select.Option value="full">Chuyển khoản 100%</Select.Option>
                 <Select.Option value="deposit">Thu sau</Select.Option>
               </Select>
             </Form.Item>

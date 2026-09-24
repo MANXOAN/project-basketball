@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nodemon --exec babel-node src/bootstrap.js",
     "start": "babel-node src/bootstrap.js",
-    "seed": "babel-node src/seed.js"
+    "seed": "babel-node src/seed.js",
+    "test:rbac": "babel-node src/tests/rbac.test.js"
   },
   "keywords": [],
   "author": "",

@@ -40,6 +40,7 @@ const bookingSchema = new mongoose.Schema(
     refundStatus: { type: String, enum: ["none", "pending", "completed"], default: "none" },
     cancellationReason: { type: String, default: "" },
     checkedInAt: { type: Date, default: null },
+    createdBy: { type: Number, default: null, index: true },
     createdAt: { type: String },
   },
   { timestamps: true, versionKey: false }

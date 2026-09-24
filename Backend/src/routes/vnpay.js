@@ -3,6 +3,7 @@ import crypto from "crypto";
 import Booking from "../models/Booking";
 import Payment from "../models/Payment";
 import { expirePendingPayments } from "../controllers/booking";
+import { authRequired } from "../middleware/auth";
 
 const router = express.Router();
 const moment = require('moment');
@@ -33,7 +34,7 @@ function sortObject(obj) {
     return sorted;
 }
 
-router.post('/create-url', async function (req, res, next) {
+router.post('/create-url', authRequired, async function (req, res, next) {
     try {
         await expirePendingPayments();
         const date = new Date();
@@ -59,6 +60,11 @@ router.post('/create-url', async function (req, res, next) {
         const booking = await Booking.findOne({ id: Number(orderId) });
         if (!booking) {
             return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
+        }
+        const staff = req.user?.role === "admin" || req.user?.role === "manager";
+        const owner = Number(booking.customer?.userId) === Number(req.user?.id);
+        if (!staff && !owner) {
+            return res.status(403).json({ message: "Bạn không có quyền thanh toán đơn này" });
         }
         if (booking.status === "cancelled") {
             return res.status(400).json({ message: "Đơn đã hết hạn hoặc đã hủy" });

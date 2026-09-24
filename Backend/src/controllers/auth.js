@@ -133,6 +133,55 @@ export async function listUsers(req, res) {
   }
 }
 
+/** POST /users — admin tạo tài khoản nội bộ với role rõ ràng. */
+export async function createUser(req, res) {
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+    const role = String(req.body.role || "user");
+    if (!email || password.length < 6) {
+      return res.status(400).json({ message: "Email và mật khẩu tối thiểu 6 ký tự là bắt buộc" });
+    }
+    if (!["admin", "manager", "user"].includes(role)) {
+      return res.status(400).json({ message: "Vai trò không hợp lệ" });
+    }
+    if (await User.exists({ email })) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
+    const id = await nextId("users");
+    const user = await User.create({
+      id,
+      email,
+      password: await bcrypt.hash(password, 10),
+      fullName: String(req.body.fullName || "").trim(),
+      phone: String(req.body.phone || "").trim(),
+      role,
+    });
+    return res.status(201).json(serialize(user));
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+}
+
+/** PATCH /users/:id/role — chỉ admin được phân quyền. */
+export async function updateUserRole(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const role = String(req.body.role || "");
+    if (!["admin", "manager", "user"].includes(role)) {
+      return res.status(400).json({ message: "Vai trò không hợp lệ" });
+    }
+    if (Number(req.user?.id) === id && role !== "admin") {
+      return res.status(400).json({ message: "Không thể tự gỡ quyền admin của chính mình" });
+    }
+    const user = await User.findOneAndUpdate({ id }, { $set: { role } }, { new: true, runValidators: true });
+    if (!user) return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+    return res.json(serialize(user));
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+}
+
 /** PATCH /users/:id — user tự cập nhật thông tin cơ bản */
 export async function updateProfile(req, res) {
   try {
