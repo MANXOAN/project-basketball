@@ -2,7 +2,7 @@
 
 Cập nhật: 24/09/2026
 Branch: `feat/booking-shared-db-flow`
-Commit mới nhất: `7cd8ec3`
+Mốc code cần QA: `7cd8ec3`
 
 ## 1. Chuẩn bị môi trường
 
@@ -178,14 +178,59 @@ Hoàn tiền tự động qua API VNPay không nằm trong phạm vi hiện tạ
 - Khách hủy nhóm phải cập nhật tất cả booking trong nhóm ngay, không cần F5.
 - Khi Admin xác nhận hoàn, khách nhận toast và trạng thái mới mà không cần reload thủ công.
 
-## 12. Kiểm tra tự động đã chạy
+## 12. Đối chiếu Backend API
+
+Tất cả endpoint cần gửi JWT trong header `Authorization: Bearer <token>`, trừ API xem lịch trống và callback từ VNPay.
+
+| Nghiệp vụ | Endpoint | Kết quả cần kiểm tra |
+| --- | --- | --- |
+| Danh sách đơn | `GET /api/bookings` | User chỉ nhận đơn của mình; Manager/Admin nhận toàn bộ; sắp xếp `id` giảm dần. |
+| Lịch đã giữ | `GET /api/bookings/availability?date=YYYY-MM-DD&courtId=ID` | Trả `courtId`, `reservedCourtIds`, ngày, giờ, thời lượng và trạng thái; không trả thông tin khách. |
+| Chi tiết đơn | `GET /api/bookings/:id/detail` | Có `field`, `courtDetail`, `reservedCourts` và `groupSchedule`; người không sở hữu đơn nhận HTTP 403. |
+| Tạo đơn | `POST /api/bookings` | Backend tự đọc giá sân từ DB, tự tính dịch vụ/voucher/tổng tiền và không tin `total`, `discount`, `status` từ client. |
+| Hủy đơn | `POST /api/bookings/:id/cancel` | Trả trạng thái hủy, mức hoàn, lý do; đơn nhóm chưa thanh toán trả thêm `cancelledBookingIds`. |
+| Hàng chờ hoàn | `GET /api/bookings/refunds` | Chỉ staff; có mã giao dịch, cổng, ngân hàng, mã thanh toán và số tiền giao dịch gốc nếu có. |
+| Xác nhận hoàn | `POST /api/bookings/:id/refund` | Chỉ Admin; cập nhật `refundStatus`, `paymentStatus`, tạo payment hoàn thủ công và notification. |
+| Check-in | `POST /api/bookings/:id/check-in` | Chỉ Manager/Admin; chỉ đơn `confirmed` mới được chuyển thành `completed`. |
+| Kiểm tra voucher | `POST /api/vouchers/validate` | User đã đăng nhập được gọi; trả mã chuẩn hóa, loại và `discountAmount`. |
+| Quản trị voucher | `GET/POST/PATCH/DELETE /api/vouchers` | Chỉ Admin; kiểm tra mã trùng, giới hạn, thời gian hiệu lực và trạng thái. |
+| Tạo URL VNPay | `POST /api/vnpay/create-url` | Số tiền được đối chiếu lại từ booking/payment trong DB; sai tiền hoặc sai chủ đơn bị từ chối. |
+| Callback VNPay | `GET /api/vnpay/return`, `GET /api/vnpay/ipn` | Kiểm tra chữ ký, số tiền và tính idempotent; callback lặp không cộng tiền lần hai. |
+
+Các mã lỗi quan trọng cần test: `400` dữ liệu/nghiệp vụ sai, `401` chưa đăng nhập, `403` sai quyền/chủ đơn, `404` không tồn tại, `409` trùng slot hoặc voucher vừa hết lượt.
+
+## 13. Đối chiếu MongoDB
+
+Có thể kiểm tra bằng MongoDB Compass. Không sửa trực tiếp dữ liệu trong DB khi đang chạy test luồng.
+
+| Collection | Dữ liệu cần đối chiếu |
+| --- | --- |
+| `bookings` | Một document cho mỗi buổi; kiểm tra `bookingGroupId`, `bookingMode`, `reservedCourtIds`, `groupTotal`, `customer`, `services`, voucher, thanh toán, hoàn tiền và trạng thái. |
+| `bookinggroups` | Một document cho cả nhóm; `bookingIds` phải đủ số buổi, `primaryBookingId` hợp lệ, tổng tiền và trạng thái thanh toán đồng nhất. |
+| `bookingslots` | Mỗi document là một khóa 30 phút. Bao 3 sân trong 1 giờ phải tạo 6 khóa cho mỗi buổi; tổ hợp `courtId + date + time` là duy nhất. |
+| `payments` | Có `paymentCode` duy nhất, `transactionCode`, `bookingId`, `bookingGroupId`, số tiền, loại thanh toán, trạng thái, `paidAt`; callback gốc lưu trong `rawData`. |
+| `vouchers` | `code` viết hoa; `used` tăng đúng một lần khi giữ chỗ và giảm đúng một lần nếu đơn chưa thanh toán bị hủy/hết hạn. |
+| `notifications` | Khi Admin xác nhận hoàn phải có notification `refund_completed` gắn đúng `bookingId` và user/email. |
+| `fields`, `courts` | Giá, giờ mở cửa, trạng thái và quan hệ `court.fieldId` là nguồn tính tiền/kiểm tra lịch của Backend. |
+| `users` | Vai trò chỉ thuộc `user`, `manager`, `admin`; API không được trả trường `password`. |
+
+Khóa đối chiếu giữa các collection:
+
+- `bookings.id` ↔ `payments.bookingId` ↔ `bookingslots.bookingId` ↔ `notifications.bookingId`.
+- `bookings.bookingGroupId` ↔ `bookinggroups.id` ↔ `payments.bookingGroupId`.
+- `bookings.fieldId` ↔ `fields.id`; `bookings.courtId` và `reservedCourtIds` ↔ `courts.id`.
+- `bookings.customer.userId` ↔ `users.id` đối với đơn do user tự đặt.
+
+Sau thanh toán nhóm, tất cả booking thành viên và `bookinggroups` phải cùng trạng thái. Sau hủy đơn chưa thanh toán, slot phải bị xóa và lượt voucher được trả lại. `payments.rawData`, `_id`, `__v`, mật khẩu và secret cấu hình là dữ liệu nội bộ, không yêu cầu trả ra Frontend.
+
+## 14. Kiểm tra tự động đã chạy
 
 - Backend payment flow: pass.
 - Backend RBAC: pass.
 - Frontend ESLint các file thay đổi: pass.
 - Frontend production build: pass.
 
-## 13. Commit theo nhóm thay đổi
+## 15. Commit theo nhóm thay đổi
 
 - `65fcdbb` - phân quyền và bảo vệ booking.
 - `e66d634` - payment, callback và phục hồi luồng thanh toán.
@@ -197,7 +242,7 @@ Hoàn tiền tự động qua API VNPay không nằm trong phạm vi hiện tạ
 - `3331b10` - bỏ `.env` khỏi Git, thêm `.env.example`.
 - `7cd8ec3` - chặn click giờ đã qua từ trang chi tiết sân.
 
-## 14. Lưu ý bảo mật trước production
+## 16. Lưu ý bảo mật trước production
 
 - Thu hồi Gmail App Password cũ và tạo App Password mới.
 - Đổi `VNP_HASH_SECRET` nếu giá trị cũ là credential thật.
