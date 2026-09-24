@@ -6,20 +6,34 @@ Hướng dẫn này chỉ chuyển nhánh `feat/booking-shared-db-flow` từ
 Nhánh `main` của repo chung chưa thay đổi ở bước này; team sẽ tự review và merge
 sau.
 
-## 1. Lấy hai repo trong một bản clone mới
+## 1. Dùng bản code repo Sơn đang có trên máy
 
-Chạy các lệnh sau tại thư mục bạn muốn lưu project:
+Mở terminal trong thư mục project đã lấy từ repo Sơn và kiểm tra remote:
 
 ```bash
-git clone https://github.com/Sonnnph61360/DATNSM26.git
-cd DATNSM26
+git remote -v
+git status --short
+```
+
+Chỉ tiếp tục nếu `origin` trỏ đến repo `Sonnnph61360/DATNSM26` (URL HTTPS
+hoặc SSH đều được). Nếu `origin` đang trỏ đến repo khác, cần xác định đúng thư
+mục repo Sơn trước khi đẩy. Các lệnh tiếp theo không
+đổi nhánh hiện tại và không chép đè các file đang làm trên máy.
+
+Thêm repo MANXOAN làm nguồn và lấy đúng nhánh đã đẩy:
+
+```bash
 git remote add manxoan https://github.com/MANXOAN/project-basketball.git
 git fetch manxoan feat/booking-shared-db-flow
 ```
 
+Nếu `git remote add` báo tên `manxoan` đã tồn tại, chạy
+`git remote get-url manxoan` để kiểm tra URL. Nếu URL đã đúng, bỏ qua lệnh
+`remote add` và chạy tiếp `git fetch`.
+
 Lệnh `fetch` lấy toàn bộ commit cần cho nhánh nguồn, không chép đè file trong
-`main`. **Nhánh cần lấy là `feat/booking-shared-db-flow`, không phải `main` của
-repo MANXOAN.**
+thư mục đang làm. **Nhánh cần lấy là `feat/booking-shared-db-flow`, không phải
+`main` của repo MANXOAN.**
 
 ## 2. Xác nhận commit nguồn rồi đẩy nguyên nhánh
 
