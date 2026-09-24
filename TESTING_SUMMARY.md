@@ -1,43 +1,205 @@
-# Tóm tắt phần mới để team test
+# Checklist QA - Booking, Payment, Voucher, Refund và Ticket
 
+Cập nhật: 24/09/2026
 Branch: `feat/booking-shared-db-flow`
+Commit mới nhất: `7cd8ec3`
 
-## Đặt sân và thanh toán
+## 1. Chuẩn bị môi trường
 
-- Tạo đơn trước khi đi Paygate, giữ sân ở trạng thái `pending/unpaid` trong 15 phút.
-- Khóa slot 30 phút bằng collection `bookingslots`; hai người đặt trùng thì request đến sau bị từ chối.
-- Slot sân mờ ngay khi tạo đơn; tự đồng bộ khi quay lại tab và mỗi 10 giây, không cần F5.
-- Hỗ trợ cọc 30%, thanh toán 70% còn lại và VNPay callback.
-- Đơn chưa thanh toán hết hạn tự hủy, nhả lại slot.
+- Chạy Backend tại `http://localhost:3000`.
+- Chạy Frontend tại `http://localhost:5173`.
+- Dùng chung một Backend và MongoDB khi test nhiều máy.
+- Dùng Node.js 22.
+- Không bật `ALLOW_IN_MEMORY_DB=true` khi cần giữ dữ liệu sau restart.
+- Copy `Backend/.env.example` thành `Backend/.env` và điền cấu hình local.
+- `Backend/.env` không còn được Git theo dõi. Thành viên tuyệt đối không commit secret.
 
-## Hủy đơn và hoàn tiền
+## 2. Tài khoản và phân quyền
 
-- Đơn chưa thanh toán: hủy ngay, không cần ngân hàng/STK.
-- Đơn đã cọc/đã thanh toán: chỉ hủy trước giờ sân ít nhất 2 tiếng; khách nhập ngân hàng + STK.
-- Khách thấy trạng thái `Đang hoàn tiền` hoặc `Đã hoàn tiền` kèm số tiền, ngân hàng, STK.
-- Đơn đã hủy không hiển thị QR check-in.
+### User
 
-## Admin
+- Có thể xem sân, đặt sân, thanh toán, xem lịch sử, xem/in vé và hủy đơn của chính mình.
+- Không xem được toàn bộ voucher, danh sách hoàn tiền hoặc màn quản trị.
+- Không thể xem, sửa hoặc hủy booking của tài khoản khác bằng cách đổi ID API.
 
-- Có hàng chờ hoàn tiền, tổng số tiền cần hoàn và bộ lọc `Chờ hoàn tiền`.
-- Popup xử lý hoàn tiền có tên khách, ngân hàng, STK, số tiền, nội dung chuyển khoản và nút sao chép.
-- Admin chỉ xác nhận sau khi đã chuyển tiền thật.
-- Check-in và xác nhận hoàn tiền yêu cầu quyền admin.
-- Danh sách đơn admin tự cập nhật mỗi 10 giây hoặc khi quay lại tab.
+### Manager
 
-## Thông báo khách hàng
+- Có thể đặt sân như user.
+- Có thể xem lịch, danh sách đơn, quét QR, check-in và hủy vì chủ sân/bảo trì.
+- Là vai trò duy nhất được thêm, sửa hoặc xóa cơ sở/sân con.
+- Không được tạo voucher hoặc quản lý phân quyền tài khoản.
 
-- Khi admin hoàn tiền, backend ghi notification `refund_completed` vào collection `notifications`.
-- Trang `Đơn của tôi` polling mỗi 10 giây, hiện toast và tự đổi trạng thái đơn mà không cần F5.
+### Admin
 
-## DB và chạy local
+- Có thể đặt sân như user.
+- Có thể xem lịch, đơn, QR, hàng chờ hoàn tiền và xác nhận hoàn tất.
+- Có thể tạo voucher và quản lý tài khoản/phân quyền.
+- Không được thêm hoặc sửa sân; chức năng này thuộc Manager.
 
-- Archive mới nhất: `Backend/db_datn_su26.archive.gz`.
-- Archive có: `bookings`, `bookingslots`, `payments`, `notifications`, `users`, `courts`, `fields`, `vouchers`, `counters`.
-- Hướng dẫn import/chạy local: `Backend/DB_SETUP.md`.
-- Không dùng `ALLOW_IN_MEMORY_DB=true` khi team test vì dữ liệu sẽ mất khi backend restart.
+## 3. Chọn ngày và khung giờ
 
-## Lưu ý test nhiều máy
+### Case giờ đã qua
 
-- Các máy phải dùng chung Backend và MongoDB.
-- Máy khác mở frontend qua IP máy chủ, không mở `localhost` của chính máy đó.
+1. Mở trang chi tiết một cơ sở và chọn ngày hôm nay.
+2. Nếu hiện tại là 15:00, thử các mốc 13:00, 14:30 và 15:00.
+3. Các mốc đã qua phải tối màu, disabled và không điều hướng sang Booking.
+4. Mốc tương lai gần nhất, ví dụ 15:30, vẫn chọn được nếu chưa có người đặt.
+5. Thử truyền URL chứa ngày quá khứ; trang chi tiết phải tự đưa về ngày hôm nay.
+6. Thử truyền trực tiếp `date` và `time` cũ vào trang Booking; không được chuyển bước hoặc tạo đơn.
+7. Gọi API tạo booking với giờ cũ; backend trả HTTP 400 và thông báo khung giờ đã qua.
+
+Quy tắc dùng múi giờ Việt Nam UTC+7 và cập nhật giao diện mỗi 30 giây. Quy tắc áp dụng cho đơn thường, định kỳ, nhiều giai đoạn và bao sân.
+
+### Case trùng lịch
+
+1. Hai user cùng chọn một sân, ngày và giờ.
+2. User A tạo đơn trước.
+3. User B phải thấy slot bị khóa; nếu gửi đồng thời thì request đến sau nhận lỗi conflict.
+4. Một ca 16:00-18:00 phải khóa đủ các mốc 16:00, 16:30, 17:00 và 17:30.
+
+## 4. Đặt lịch định kỳ và nhiều giai đoạn
+
+1. Chọn ngày đầu, ngày kết thúc và giờ cố định theo tuần.
+2. Kiểm tra danh sách occurrence, tổng số buổi và tổng tiền.
+3. Bấm `Thêm giai đoạn`, chọn ngày kế tiếp hoặc tháng kế tiếp và đổi giờ.
+4. Lịch tổng phải gồm đầy đủ các giai đoạn, tối đa 60 buổi.
+5. Nếu bất kỳ occurrence nào đã qua hoặc trùng lịch thì toàn bộ request bị từ chối.
+6. Quay lại từ Paygate phải khôi phục ngày, giờ, giai đoạn, thông tin khách và dịch vụ đã nhập.
+
+## 5. Bao toàn bộ sân
+
+Dùng cơ sở `Sân Bóng Rổ GoldenState 2`, có 3 sân con.
+
+1. Chọn `Bao toàn bộ sân`.
+2. Chọn một khung giờ.
+3. Cùng khung giờ đó phải được khóa trên cả 3 sân con.
+4. Tổng tiền bằng tổng giá của 3 sân nhân thời lượng và số buổi.
+5. Booking hiển thị nhãn bao sân và danh sách sân con.
+6. Chi tiết lịch sử đơn phải hiển thị toàn bộ nhóm lịch và toàn bộ sân con.
+7. Hủy nhóm chưa thanh toán phải nhả slot trên cả 3 sân.
+
+## 6. Paygate và hết hạn thanh toán
+
+1. Booking được tạo trước khi sang Paygate với trạng thái `pending/unpaid`.
+2. Slot được giữ tối đa 15 phút.
+3. Bấm quay lại chỉnh sửa phải hiện xác nhận hủy đơn giữ chỗ.
+4. Xác nhận quay lại phải hủy toàn bộ nhóm giữ chỗ, nhả slot và khôi phục form.
+5. Không xác nhận thì vẫn ở Paygate và giữ nguyên đơn.
+6. Quá 15 phút, đơn tự hủy và slot trống trở lại.
+7. Đơn hết hạn không tự thêm lại vào giỏ hàng.
+8. Callback VNPay lặp lại không được cộng tiền hai lần.
+9. Khoản thanh toán dư hoặc đến sau khi đơn hết hạn phải vào hàng chờ hoàn tiền.
+
+## 7. Voucher
+
+### Admin tạo voucher
+
+1. Tạo mã `TEST10`, loại phần trăm, giảm 10%, giới hạn 2 lượt và thời gian gồm hôm nay.
+2. Mã được chuẩn hóa thành chữ hoa.
+3. Không cho tạo mã trùng khác hoa/thường.
+4. Phần trăm chỉ nhận từ 1 đến 100.
+5. Test thêm voucher số tiền cố định, inactive, chưa đến ngày và hết hạn.
+
+### User áp dụng voucher
+
+1. Nhập `test10` và bấm `Áp dụng`.
+2. Chỉ sau khi backend xác nhận mới hiện dòng giảm giá và đổi tổng tiền.
+3. Xóa hoặc sửa nội dung ô mã: giảm giá biến mất ngay, tổng tiền trở lại ban đầu và payload không gửi voucher.
+4. Thay lịch, thời lượng hoặc dịch vụ làm đổi subtotal: voucher cũ không còn hiệu lực cho đến khi áp dụng lại.
+5. Backend phải tự tính giảm giá, không tin `total/discount` do client gửi.
+6. Hủy đơn chưa thanh toán hoặc để đơn hết hạn phải trả lại lượt voucher đúng một lần.
+7. Voucher 100% xác nhận đơn ngay, tổng 0 và không chuyển sang Paygate.
+8. User gọi GET danh sách voucher phải bị từ chối; Admin vẫn xem được.
+
+## 8. Email sau thanh toán
+
+Sau thanh toán thành công, kiểm tra Gmail nhận email gồm:
+
+- Mã booking.
+- Cơ sở, sân, ngày và giờ đầu tiên.
+- Toàn bộ lịch nếu là booking nhóm.
+- Số buổi, dịch vụ, voucher.
+- Số tiền giao dịch, tổng đã trả và tổng đơn.
+- Mã giao dịch và thông tin khách.
+
+Cần test thực tế sau khi thay Gmail App Password mới trong `Backend/.env`. Không dùng mật khẩu Gmail thông thường.
+
+## 9. Vé, QR và tra cứu in lại
+
+### Khách hàng
+
+1. Vào `Đơn của tôi`, mở vé của đơn hợp lệ.
+2. Vé phải có mã booking, khách, SĐT, cơ sở, sân, ngày, giờ, tiền và trạng thái thanh toán.
+3. QR phải render ngay trong ứng dụng, không phụ thuộc dịch vụ ảnh ngoài.
+4. Có thể in/lưu PDF và thêm lịch.
+
+### Admin/Manager
+
+1. Tìm đơn theo mã BK, SĐT hoặc tên khách.
+2. Bấm `Xem / In vé` để hỗ trợ khách mất vé.
+3. Quét QR phải mở thông tin vé để đối chiếu, không tự check-in ngay.
+4. Chỉ sau khi bấm `Xác nhận thông tin đúng & Check-in` đơn mới hoàn thành.
+5. QR của đơn đã hủy không được check-in.
+
+## 10. Hủy sân và hoàn tiền
+
+### Khách hủy
+
+- Trước giờ sân từ 2 tiếng trở lên: hoàn 100% số tiền đã trả.
+- Còn dưới 2 tiếng nhưng chưa đến giờ: hoàn 50%.
+- Đến hoặc quá giờ: hoàn 0%.
+- Đơn chưa thanh toán: hủy ngay, không yêu cầu ngân hàng/STK.
+- Đơn có tiền hoàn: bắt buộc nhập ngân hàng và STK.
+- Sau khi hủy, trạng thái cập nhật ngay, không cần F5.
+
+### Chủ sân hoặc bảo trì
+
+1. Manager/Admin chọn `Hủy do sân`.
+2. Chọn `Chủ sân hủy lịch` hoặc `Bảo trì đột xuất`.
+3. Khách được hoàn 100% số tiền đã trả.
+4. Slot được nhả ngay.
+
+### Admin xử lý hoàn
+
+1. Hàng chờ hiển thị số yêu cầu và tổng cần hoàn.
+2. Popup hiển thị khách, số tiền, cổng thanh toán, ngân hàng, mã giao dịch, mã thanh toán và số tiền giao dịch gốc.
+3. Case khách tự hủy hiển thị ngân hàng và STK khách cung cấp.
+4. Case tiền mặt hiển thị phương thức và SĐT để liên hệ.
+5. Sau khi Admin thực hiện hoàn thủ công, bấm xác nhận hoàn tất.
+6. Hoàn 50% phải có trạng thái `partially_refunded`; hoàn đủ là `refunded`.
+7. Khách nhận notification và trang `Đơn của tôi` tự cập nhật trong tối đa 10 giây, không cần F5.
+
+Hoàn tiền tự động qua API VNPay không nằm trong phạm vi hiện tại.
+
+## 11. Đồng bộ danh sách và thứ tự
+
+- Đơn mới nhất phải nằm đầu danh sách Admin và `Đơn của tôi`.
+- Admin tự tải lại khi quay lại tab và tối đa mỗi 10 giây.
+- Khách hủy nhóm phải cập nhật tất cả booking trong nhóm ngay, không cần F5.
+- Khi Admin xác nhận hoàn, khách nhận toast và trạng thái mới mà không cần reload thủ công.
+
+## 12. Kiểm tra tự động đã chạy
+
+- Backend payment flow: pass.
+- Backend RBAC: pass.
+- Frontend ESLint các file thay đổi: pass.
+- Frontend production build: pass.
+
+## 13. Commit theo nhóm thay đổi
+
+- `65fcdbb` - phân quyền và bảo vệ booking.
+- `e66d634` - payment, callback và phục hồi luồng thanh toán.
+- `78c2071` - lịch nhóm, nhiều giai đoạn và bao sân.
+- `761a629` - vé, QR và chi tiết đơn bao sân.
+- `37a9a86` - chính sách hoàn 100%/50%/0%.
+- `a694155` - voucher và vận hành hoàn tiền.
+- `e984b77` - backend/frontend chặn giờ đã qua.
+- `3331b10` - bỏ `.env` khỏi Git, thêm `.env.example`.
+- `7cd8ec3` - chặn click giờ đã qua từ trang chi tiết sân.
+
+## 14. Lưu ý bảo mật trước production
+
+- Thu hồi Gmail App Password cũ và tạo App Password mới.
+- Đổi `VNP_HASH_SECRET` nếu giá trị cũ là credential thật.
+- Không gửi `.env` qua chat và không commit lại file này.
+- Secret cũ vẫn tồn tại trong lịch sử Git; việc đổi credential là bắt buộc.
