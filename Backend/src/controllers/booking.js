@@ -171,9 +171,16 @@ export async function getBookingDetail(req, res) {
     if (!canAccessBooking(req.user, booking)) {
       return res.status(403).json({ message: "Bạn không có quyền xem đơn này" });
     }
-    const [field, court] = await Promise.all([
+    const reservedCourtIds = booking.reservedCourtIds?.length
+      ? booking.reservedCourtIds
+      : [booking.courtId];
+    const [field, court, reservedCourts, groupBookings] = await Promise.all([
       Field.findOne({ id: booking.fieldId }),
       Court.findOne({ id: booking.courtId }),
+      Court.find({ id: { $in: reservedCourtIds } }).sort({ id: 1 }),
+      booking.bookingGroupId
+        ? Booking.find({ bookingGroupId: booking.bookingGroupId }).sort({ date: 1, time: 1, id: 1 })
+        : Promise.resolve([booking]),
     ]);
     const data = serialize(booking);
     return res.json({
@@ -194,6 +201,22 @@ export async function getBookingDetail(req, res) {
         type: court.type,
         capacity: court.capacity,
       } : null,
+      reservedCourts: reservedCourts.map((reservedCourt) => ({
+        id: reservedCourt.id,
+        name: reservedCourt.name,
+        type: reservedCourt.type,
+        capacity: reservedCourt.capacity,
+        price: reservedCourt.price,
+      })),
+      groupSchedule: groupBookings.map((groupBooking) => ({
+        id: groupBooking.id,
+        date: groupBooking.date,
+        time: groupBooking.time,
+        duration: groupBooking.duration,
+        total: groupBooking.total,
+        status: groupBooking.status,
+        paymentStatus: groupBooking.paymentStatus,
+      })),
     });
   } catch (e) {
     return res.status(500).json({ message: e.message });

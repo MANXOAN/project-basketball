@@ -117,6 +117,9 @@ export type Booking = {
     userId?: number;
     email?: string;
   };
+  services?: Array<{ name: string; quantity: number; price: number }>;
+  voucherCode?: string;
+  discount?: number;
   paymentMethod: string;
   paymentStatus: string;
   paidAmount?: number;

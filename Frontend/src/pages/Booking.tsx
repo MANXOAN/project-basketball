@@ -34,6 +34,12 @@ type BookingDraft = {
 
 type PaymentMethod = "deposit" | "full" | "cash";
 
+const addDaysIso = (value: string, days: number): string => {
+  const next = new Date(value + "T00:00:00Z");
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+};
+
 const getEndTime = (startTime: string, dur: number): number => {
   const [hours, minutes] = startTime.split(":").map(Number);
   return hours + minutes / 60 + dur;
@@ -135,8 +141,8 @@ export default function Booking() {
     return scheduleSegments.flatMap((segment) => {
       if (!segment.startDate || !segment.endDate || segment.endDate < segment.startDate || !segment.time) return [];
       const dates: Array<{ date: string; time: string }> = [];
-      const current = new Date(segment.startDate + "T00:00:00");
-      const end = new Date(segment.endDate + "T00:00:00");
+      const current = new Date(segment.startDate + "T00:00:00Z");
+      const end = new Date(segment.endDate + "T00:00:00Z");
       while (current <= end) {
         const occurrence = { date: current.toISOString().slice(0, 10), time: segment.time };
         const key = occurrence.date + "|" + occurrence.time;
@@ -144,7 +150,7 @@ export default function Booking() {
           seen.add(key);
           dates.push(occurrence);
         }
-        current.setDate(current.getDate() + 7);
+        current.setUTCDate(current.getUTCDate() + 7);
       }
       return dates;
     });
@@ -154,6 +160,19 @@ export default function Booking() {
     () => scheduledOccurrences.map((occurrence) => occurrence.date),
     [scheduledOccurrences]
   );
+
+  const addSchedulePeriod = () => {
+    if (!date || !time) {
+      toast.error("Hãy chọn ngày và giờ của giai đoạn đầu trước");
+      return;
+    }
+    const lastPeriod = schedulePeriods[schedulePeriods.length - 1];
+    const nextDate = addDaysIso(lastPeriod?.endDate || endDate || date, 1);
+    setSchedulePeriods((periods) => [
+      ...periods,
+      { id: Date.now() + periods.length, startDate: nextDate, endDate: nextDate, time },
+    ]);
+  };
 
   // Tính tổng tiền các dịch vụ phát sinh
   const servicesTotal = (balls * 20000) + (bibs * 10000) + (water * 10000) + (mineralWater * 15000);
@@ -632,18 +651,25 @@ export default function Booking() {
                 </button>
               </div>
 
+              {bookingMode === "full_field" && (
+                <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+                  <strong>Đã chọn toàn bộ {courts.length} sân con.</strong> Khung giờ chỉ có thể chọn khi tất cả các sân con đều đang trống và tổng tiền sẽ cộng giá của cả {courts.length} sân.
+                </div>
+              )}
+
               {courts.length === 0 ? (
                 <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-800">
                   Cơ sở này chưa có sân đang hoạt động. Vui lòng chọn cơ sở khác hoặc liên hệ quản lý sân.
                 </div>
               ) : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {courts.map((c) => {
-                  const active = bookingMode === "court" && courtId === c.id;
+                  const active = bookingMode === "full_field" || courtId === c.id;
                   return (
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => { setBookingMode("court"); setCourtId(c.id); }}
+                      disabled={bookingMode === "full_field"}
+                      onClick={() => setCourtId(c.id)}
                       className={`rounded-2xl p-4 text-left transition-all relative overflow-hidden border ${
                         active
                           ? "bg-amber-50 border-amber-400 text-amber-700 shadow-sm ring-1 ring-amber-200"
@@ -655,7 +681,7 @@ export default function Booking() {
                         {active && <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />}
                       </div>
                       <div className={`text-xs font-semibold ${active ? "text-amber-700" : "text-slate-500"}`}>
-                        {formatCurrency(c.price)} / giờ
+                        {bookingMode === "full_field" ? "Đã nằm trong gói bao sân" : formatCurrency(c.price) + " / giờ"}
                       </div>
                     </button>
                   );
@@ -774,12 +800,12 @@ export default function Booking() {
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-extrabold text-slate-900">Đổi khung giờ theo giai đoạn</h4>
-                    <p className="mt-1 text-xs text-slate-500">Ví dụ tháng đầu chơi sáng, tháng sau chuyển sang chiều.</p>
+                    <p className="mt-1 text-xs text-slate-500">Bấm thêm để tạo ngay lịch ngày kế tiếp; bạn có thể đổi ngày hoặc giờ sau đó.</p>
                   </div>
                   <button
                     type="button"
-                    disabled={schedulePeriods.length >= 11}
-                    onClick={() => setSchedulePeriods((periods) => [...periods, { id: Date.now(), startDate: "", endDate: "", time: "" }])}
+                    disabled={schedulePeriods.length >= 11 || !date || !time}
+                    onClick={addSchedulePeriod}
                     className="btn-outline inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-40"
                   >
                     <Plus className="h-4 w-4" /> Thêm giai đoạn
@@ -810,7 +836,23 @@ export default function Booking() {
                     </div>
                   ))}
                 </div>
-                {scheduledOccurrences.length > 1 && <p className="mt-4 text-sm font-bold text-amber-700">Tổng cộng {scheduledOccurrences.length} buổi được đặt theo tuần.</p>}
+                {scheduledOccurrences.length > 0 && (
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h5 className="text-sm font-extrabold text-amber-900">Lịch sẽ được giữ ngay khi xác nhận</h5>
+                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-900">{scheduledOccurrences.length} buổi</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {scheduledOccurrences.slice(0, 12).map((occurrence, index) => (
+                        <div key={occurrence.date + "|" + occurrence.time} className="flex items-center justify-between rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs">
+                          <span className="font-bold text-slate-500">Buổi {index + 1}</span>
+                          <span className="font-extrabold text-slate-900">{occurrence.date.split("-").reverse().join("/")} · {occurrence.time}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {scheduledOccurrences.length > 12 && <p className="mt-3 text-xs font-semibold text-amber-800">Và {scheduledOccurrences.length - 12} buổi tiếp theo trong lịch đã chọn.</p>}
+                  </div>
+                )}
               </div>
             </div>
 

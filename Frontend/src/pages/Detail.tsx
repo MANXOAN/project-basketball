@@ -50,7 +50,9 @@ export default function Detail() {
       const list = await getBookingsByDate(selectedDate, force);
       const map: Record<number, Booking[]> = {};
       for (const c of courts) {
-        map[c.id] = list.filter((b) => b.courtId === c.id && b.status !== "cancelled");
+        map[c.id] = list.filter((b) =>
+          (b.courtId === c.id || b.reservedCourtIds?.includes(c.id)) && b.status !== "cancelled"
+        );
       }
       setBookedByCourt(map);
     } catch {

@@ -1,15 +1,30 @@
+import type { ThHTMLAttributes } from "react";
+import type { Dayjs } from "dayjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider } from "antd";
-import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, UserRound } from "lucide-react";
+import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, Printer, UserRound } from "lucide-react";
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
 import * as XLSX from 'xlsx';
 import { formatDateVi } from "../../lib/locale";
 import { Html5QrcodeScanner } from "html5-qrcode";
+import BookingPass from "../../components/BookingPass";
+
+type PosFormValues = {
+  fullName: string;
+  phone: string;
+  courtId: number;
+  date: Dayjs;
+  time: Dayjs;
+  duration: number;
+  total: number;
+  paymentMethod: "cash" | "full" | "deposit";
+};
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [refundRequests, setRefundRequests] = useState<Booking[]>([]);
   const [refundModalBooking, setRefundModalBooking] = useState<Booking | null>(null);
+  const [ticketBooking, setTicketBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -74,7 +89,7 @@ export default function AdminBookings() {
     message.success("Xuất file Excel thành công!");
   };
 
-  const handlePosSubmit = async (values: any) => {
+  const handlePosSubmit = async (values: PosFormValues) => {
     try {
       const st = values.time.format('HH:mm');
       const court = courts.find(c => c.id === values.courtId);
@@ -97,7 +112,7 @@ export default function AdminBookings() {
       setIsPosOpen(false);
       posForm.resetFields();
       fetchBookings();
-    } catch (e) {
+    } catch {
       message.error("Lỗi tạo đơn");
     }
   };
@@ -120,6 +135,16 @@ export default function AdminBookings() {
       message.success(`Đã sao chép ${label}`);
     } catch {
       message.error("Không thể sao chép, vui lòng sao chép thủ công");
+    }
+  };
+
+  const openTicket = async (booking: Booking) => {
+    setTicketBooking(booking);
+    try {
+      const response = await api.get<Booking>("/bookings/" + booking.id + "/detail");
+      setTicketBooking(response.data);
+    } catch {
+      message.warning("Đang hiển thị vé từ dữ liệu danh sách; chưa tải được địa chỉ chi tiết.");
     }
   };
 
@@ -273,6 +298,11 @@ export default function AdminBookings() {
               Xử lý hoàn tiền
             </Button>
           )}
+          {r.status !== "cancelled" && (
+            <Button size="small" className="font-semibold w-full text-xs flex items-center justify-center gap-1" onClick={() => openTicket(r)}>
+              <Printer size={12} /> Xem / In vé
+            </Button>
+          )}
           {r.status === "confirmed" && (
             <Button size="small" type="primary" className="bg-emerald-500 hover:bg-emerald-600 font-semibold shadow-emerald-500/30 shadow-md w-full border-0 text-xs flex items-center justify-center gap-1" onClick={() => markCheckIn(r.id)}>
               <CheckCircle2 size={12} /> Check-in
@@ -331,10 +361,10 @@ export default function AdminBookings() {
         </div>
         <div className="flex gap-3">
           <Input.Search
-            placeholder="Tìm mã BK, SĐT, Tên..."
+            placeholder="Tra cứu để in lại: mã BK, SĐT, tên..."
             allowClear
             size="large"
-            className="w-full sm:w-[280px]"
+            className="w-full sm:w-[340px]"
             onChange={(e) => setSearchText(e.target.value)}
             style={{ borderRadius: '12px' }}
           />
@@ -422,10 +452,30 @@ export default function AdminBookings() {
           scroll={{ x: 1000 }}
           className="modern-table"
           components={{
-            header: { cell: (props: any) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100 py-4 uppercase text-xs tracking-wider" /> }
+            header: { cell: (props: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100 py-4 uppercase text-xs tracking-wider" /> }
           }}
         />
       </div>
+
+      <Modal
+        open={Boolean(ticketBooking)}
+        onCancel={() => setTicketBooking(null)}
+        footer={null}
+        width={760}
+        destroyOnClose
+        centered
+        title={null}
+        styles={{ container: { padding: 0, background: "transparent", boxShadow: "none" } }}
+      >
+        {ticketBooking && (
+          <div className="py-6">
+            <BookingPass booking={ticketBooking} />
+            <button type="button" onClick={() => setTicketBooking(null)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:border-amber-400 hover:bg-amber-50">
+              Đóng vé
+            </button>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={Boolean(refundModalBooking)}

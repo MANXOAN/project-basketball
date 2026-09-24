@@ -55,6 +55,16 @@ type BookingDetail = Booking & {
     closeTime?: string;
   } | null;
   courtDetail?: { name: string; type?: string; capacity?: number } | null;
+  reservedCourts?: Array<{ id: number; name: string; type?: string; capacity?: number; price?: number }>;
+  groupSchedule?: Array<{
+    id: number;
+    date: string;
+    time: string;
+    duration: number;
+    total: number;
+    status: string;
+    paymentStatus: string;
+  }>;
 };
 
 type RefundNotification = {
@@ -201,6 +211,17 @@ export default function MyBookings() {
 
   const resumePayment = (booking: Booking) => {
     navigate("/paygate", { state: { booking } });
+  };
+
+  const openTicket = async (booking: Booking) => {
+    const code = "BK" + String(booking.id).padStart(6, "0");
+    setQrModal({ isOpen: true, code, booking });
+    try {
+      const response = await api.get<BookingDetail>("/bookings/" + booking.id + "/detail");
+      setQrModal({ isOpen: true, code, booking: response.data });
+    } catch {
+      toast.error("Chưa tải được địa chỉ chi tiết; vé vẫn có thể sử dụng.");
+    }
   };
 
   const openBookingDetail = async (booking: Booking) => {
@@ -360,6 +381,11 @@ export default function MyBookings() {
                         <div>
                           <div className="font-extrabold text-slate-900 text-base">{b.fieldName}</div>
                           <div className="text-xs text-slate-500 mt-0.5 font-medium">Sân thi đấu: <span className="text-amber-600 font-bold">{b.court}</span></div>
+                          {b.bookingMode === "full_field" && (
+                            <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-amber-800">
+                              Bao toàn bộ sân · {b.reservedCourtIds?.length || 0} sân con
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -402,9 +428,9 @@ export default function MyBookings() {
                     {/* Price and Details */}
                     <div className="flex flex-wrap items-center justify-between pt-4 border-t border-slate-100 gap-4">
                       <div>
-                        <div className="text-[11px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">Tổng tiền</div>
+                        <div className="text-[11px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">{b.groupSize && b.groupSize > 1 ? "Tổng nhóm · " + b.groupSize + " buổi" : "Tổng tiền"}</div>
                         <div className="text-xl font-black text-amber-600">
-                          {formatCurrency(b.total)}
+                          {formatCurrency(b.groupSize && b.groupSize > 1 ? Number(b.groupTotal || b.total) : b.total)}
                           {b.paymentMethod === "deposit" && b.paymentStatus === "deposit_paid" && (
                             <span className="text-xs text-gray-400 font-normal ml-2">(Đã cọc 30% · còn {formatCurrency(Math.max(0, Number(b.groupTotal || b.total) - Math.round(Number(b.groupTotal || b.total) * 0.3)))})</span>
                           )}
@@ -431,11 +457,11 @@ export default function MyBookings() {
                         {b.status !== "cancelled" && (
                         <button
                           type="button"
-                          onClick={() => setQrModal({ isOpen: true, code: bookingCode, booking: b })}
+                          onClick={() => openTicket(b)}
                           className="bg-slate-950 hover:bg-amber-400 hover:text-slate-950 text-white border border-slate-900 text-xs font-bold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5"
                         >
                           <QrCode className="w-3.5 h-3.5" />
-                          Mã QR Check-in
+                          Xem / In vé
                         </button>
                         )}
 
@@ -513,13 +539,17 @@ export default function MyBookings() {
         {detailModal.isOpen && detailModal.detail && (() => {
           const detail = detailModal.detail;
           const address = [detail.field?.address, detail.field?.city].filter(Boolean).join(", ");
+          const isFullField = detail.bookingMode === "full_field";
+          const reservedCourts = detail.reservedCourts || [];
+          const groupSchedule = detail.groupSchedule || [];
+          const isGrouped = groupSchedule.length > 1;
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Chi tiết đơn đặt sân">
               <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-900 px-6 py-6 text-white">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">Chi tiết đơn đặt sân</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">{isFullField ? "Chi tiết đơn bao toàn bộ sân" : "Chi tiết đơn đặt sân"}</p>
                       <h2 className="mt-2 font-mono text-2xl font-black">BK{String(detail.id).padStart(6, "0")}</h2>
                     </div>
                     <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold">
@@ -542,7 +572,9 @@ export default function MyBookings() {
                           <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                           <div>
                             <div className="font-black text-slate-950">{detail.field?.name || detail.fieldName}</div>
-                            <div className="mt-1 text-sm font-semibold text-amber-700">{detail.courtDetail?.name || detail.court}</div>
+                            <div className="mt-1 text-sm font-semibold text-amber-700">
+                              {isFullField ? "Bao toàn bộ sân (" + reservedCourts.length + " sân con)" : detail.courtDetail?.name || detail.court}
+                            </div>
                             <p className="mt-2 text-sm leading-6 text-slate-600">{address || "Địa chỉ sân đang được cập nhật"}</p>
                           </div>
                         </div>
@@ -553,10 +585,57 @@ export default function MyBookings() {
                         )}
                       </div>
 
+                      {isFullField && (
+                        <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4" aria-label="Các sân con thuộc đơn bao sân">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-black text-slate-950">Các sân con đã giữ</h3>
+                            <span className="rounded-full bg-amber-200 px-2.5 py-1 text-[11px] font-black text-amber-900">{reservedCourts.length} sân</span>
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {reservedCourts.map((court) => (
+                              <div key={court.id} className="rounded-xl border border-amber-100 bg-white px-3 py-2.5">
+                                <div className="text-sm font-bold text-slate-900">{court.name}</div>
+                                <div className="mt-0.5 text-xs text-slate-500">{court.type || "Sân con"}{court.price ? " · " + formatCurrency(court.price) + "/giờ" : ""}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {isGrouped && (
+                        <section className="rounded-2xl border border-slate-200 p-4" aria-label="Toàn bộ lịch trong nhóm đặt sân">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-black text-slate-950">Lịch của toàn bộ đơn</h3>
+                            <span className="text-xs font-bold text-slate-500">{groupSchedule.length} buổi</span>
+                          </div>
+                          <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+                            {groupSchedule.map((session, index) => (
+                              <div key={session.id} className={"flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 " + (session.id === detail.id ? "border-amber-300 bg-amber-50" : "border-slate-100 bg-slate-50")}>
+                                <div>
+                                  <div className="text-sm font-bold text-slate-900">Buổi {index + 1}: {session.date} · {session.time}</div>
+                                  <div className="mt-0.5 text-xs text-slate-500">{session.duration || 1} giờ{session.id === detail.id ? " · Đang xem" : ""}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-black text-amber-700">{formatCurrency(session.total)}</div>
+                                  <div className="mt-0.5 text-[11px] font-semibold text-slate-500">{statusConfig[session.status]?.label || session.status}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
                       <div className="grid grid-cols-2 gap-3">
                         <div className="rounded-2xl border border-slate-100 p-4"><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Thời gian</div><div className="mt-1 font-black text-slate-900">{detail.time}</div><div className="mt-1 text-xs text-slate-500">{detail.duration || 1} giờ thuê</div></div>
-                        <div className="rounded-2xl border border-slate-100 p-4"><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng thanh toán</div><div className="mt-1 font-black text-amber-600">{formatCurrency(detail.total)}</div><div className="mt-1 text-xs text-slate-500">{detail.paymentStatus === "unpaid" ? "Chưa thanh toán" : "Đã ghi nhận thanh toán"}</div></div>
+                        <div className="rounded-2xl border border-slate-100 p-4"><div className="text-xs font-bold uppercase tracking-wider text-slate-400">{isGrouped ? "Giá buổi đang xem" : "Tổng thanh toán"}</div><div className="mt-1 font-black text-amber-600">{formatCurrency(detail.total)}</div><div className="mt-1 text-xs text-slate-500">{detail.paymentStatus === "unpaid" ? "Chưa thanh toán" : "Đã ghi nhận thanh toán"}</div></div>
                       </div>
+
+                      {isGrouped && (
+                        <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-950 p-4 text-white">
+                          <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng toàn bộ nhóm</div><div className="mt-1 text-xs text-slate-300">{groupSchedule.length} buổi{isFullField ? " · " + reservedCourts.length + " sân con mỗi buổi" : ""}</div></div>
+                          <div className="text-xl font-black text-amber-300">{formatCurrency(Number(detail.groupTotal || detail.total))}</div>
+                        </div>
+                      )}
 
                       {detail.field?.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone className="h-4 w-4 text-amber-600" /> Liên hệ sân: <a className="font-bold text-slate-950" href={`tel:${detail.field.phone}`}>{detail.field.phone}</a></div>}
                     </>

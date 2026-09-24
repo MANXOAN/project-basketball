@@ -9,7 +9,7 @@ import Field from "../models/Field";
 import Court from "../models/Court";
 import Payment from "../models/Payment";
 import BookingSlot from "../models/BookingSlot";
-import { cancelBooking, createBooking, expirePendingPayments } from "../controllers/booking";
+import { cancelBooking, createBooking, expirePendingPayments, getBookingDetail } from "../controllers/booking";
 import { processVnpayCallback } from "../services/vnpayPayment";
 import { buildPaymentConfirmationEmail } from "../utils/bookingEmail";
 import { setCounter } from "../utils/ids";
@@ -186,6 +186,20 @@ async function run() {
     assert.deepEqual(groupedResponse.result.body.reservedCourtIds, [11, 12, 13]);
     assert.equal(groupedResponse.result.body.groupTotal, 1500000);
     assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: groupedResponse.result.body.bookingIds } }), 30);
+
+    const detailResponse = responseRecorder();
+    await getBookingDetail({
+      user: { id: 50, role: "user" },
+      params: { id: String(groupedResponse.result.body.id) },
+    }, detailResponse.res);
+    assert.equal(detailResponse.result.statusCode, 200);
+    assert.equal(detailResponse.result.body.bookingMode, "full_field");
+    assert.deepEqual(
+      detailResponse.result.body.reservedCourts.map((court) => court.name),
+      ["Sân 1", "Sân 2", "Sân 3"]
+    );
+    assert.equal(detailResponse.result.body.groupSchedule.length, 5);
+    assert.equal(detailResponse.result.body.groupSchedule[3].time, "17:00");
 
     const groupId = groupedResponse.result.body.bookingGroupId;
     const group = await BookingGroup.findOne({ id: groupId });
