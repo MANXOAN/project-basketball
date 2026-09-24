@@ -8,13 +8,14 @@ import {
   api, Court, Field, formatCurrency, getBookedSlots, invalidateApiCache, isSlotConflict,
 } from "../lib/api";
 import { getUser } from "../lib/auth";
-import { getDemoCourts, getDemoField } from "../data/demoData";
 
 const DURATIONS = [
   { label: "1 giờ", value: 1 },
   { label: "1.5 giờ", value: 1.5 },
   { label: "2 giờ", value: 2 },
 ];
+
+type PaymentMethod = "deposit" | "full" | "cash";
 
 const getEndTime = (startTime: string, dur: number): number => {
   const [hours, minutes] = startTime.split(":").map(Number);
@@ -48,7 +49,8 @@ export default function Booking() {
     phone: getUser()?.phone || "",
     note: "",
   });
-  const [paymentMethod, setPaymentMethod] = useState<"deposit" | "full" | "cash">("deposit");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [paymentError, setPaymentError] = useState("");
   const [bookedSlots, setBookedSlots] = useState<Awaited<ReturnType<typeof getBookedSlots>>>([]);
 
   const [endDate, setEndDate] = useState("");
@@ -116,22 +118,21 @@ export default function Booking() {
           api.get<Field>(`/fields/${fieldIdParam}`),
           api.get<Court[]>(`/courts`, { params: { fieldId: fieldIdParam } }),
         ]);
+        const activeCourts = cRes.data.filter((court) => court.status === "active");
+        const requestedCourtId = courtIdParam ? Number(courtIdParam) : null;
+        const nextCourtId = activeCourts.some((court) => court.id === requestedCourtId)
+          ? requestedCourtId
+          : activeCourts[0]?.id ?? null;
         setField(fRes.data);
-        setCourts(cRes.data);
-        if (!courtIdParam && cRes.data[0]) {
-          setCourtId(cRes.data[0].id);
-        }
+        setCourts(activeCourts);
+        setCourtId(nextCourtId);
+        setTime("");
       } catch {
-        const demoField = getDemoField(fieldIdParam);
-        const demoCourts = getDemoCourts(fieldIdParam);
-        if (demoField && demoCourts.length) {
-          setField(demoField);
-          setCourts(demoCourts);
-          if (!courtIdParam) setCourtId(demoCourts[0].id);
-          toast("Đang hiển thị dữ liệu minh hoạ", { id: "demo-data" });
-        } else {
-          toast.error("Không tìm thấy cơ sở");
-        }
+        setField(null);
+        setCourts([]);
+        setCourtId(null);
+        setTime("");
+        toast.error("Không tìm thấy cơ sở hoặc sân đang chọn");
       } finally {
         setLoadingData(false);
       }
@@ -311,6 +312,11 @@ export default function Booking() {
     }
     if (!customer.phone.trim() || customer.phone.trim().length < 9) {
       toast.error("Số điện thoại không hợp lệ");
+      return;
+    }
+    if (!paymentMethod) {
+      setPaymentError("Vui lòng chọn cách thanh toán trước khi xác nhận đặt sân.");
+      toast.error("Vui lòng chọn phương thức thanh toán");
       return;
     }
     if (overlappingBooking(time)) {
@@ -537,7 +543,11 @@ export default function Booking() {
                 {field.name} · {field.address}
               </p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {courts.length === 0 ? (
+                <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-800">
+                  Cơ sở này chưa có sân đang hoạt động. Vui lòng chọn cơ sở khác hoặc liên hệ quản lý sân.
+                </div>
+              ) : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {courts.map((c) => {
                   const active = courtId === c.id;
                   return (
@@ -561,7 +571,7 @@ export default function Booking() {
                     </button>
                   );
                 })}
-              </div>
+              </div>}
             </div>
 
             {/* 2. Ngày & Giờ */}
@@ -613,7 +623,7 @@ export default function Booking() {
                 </label>
                 <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
                   {timeSlots.map((t) => {
-                    const disabled = !date || slotDisabled(t);
+                    const disabled = !selectedCourt || !date || slotDisabled(t);
                     const selected = time === t;
                     return (
                       <button
@@ -769,12 +779,17 @@ export default function Booking() {
                 Phương thức thanh toán
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <fieldset
+                id="payment-methods"
+                aria-describedby={paymentError ? "payment-method-error" : undefined}
+                className="grid grid-cols-1 md:grid-cols-3 gap-4"
+              >
+                <legend className="sr-only">Chọn phương thức thanh toán</legend>
                 {[
                   {
                     id: "deposit",
                     title: "Đặt cọc (30%)",
-                    desc: "Chuyển khoản cọc giữ sân",
+                    desc: "Giữ sân trước, thanh toán 70% còn lại sau",
                     badge: "Phổ biến",
                   },
                   {
@@ -805,7 +820,10 @@ export default function Booking() {
                           type="radio"
                           name="paymentMethod"
                           checked={active}
-                          onChange={() => setPaymentMethod(item.id as "deposit" | "full" | "cash")}
+                          onChange={() => {
+                            setPaymentMethod(item.id as PaymentMethod);
+                            setPaymentError("");
+                          }}
                           className="accent-yellow-500 w-4 h-4 mt-1"
                         />
                         <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500">
@@ -817,6 +835,13 @@ export default function Booking() {
                     </label>
                   );
                 })}
+              </fieldset>
+              <div className="mt-3 min-h-5" aria-live="polite">
+                {paymentError && (
+                  <p id="payment-method-error" role="alert" className="text-sm font-semibold text-red-600">
+                    {paymentError}
+                  </p>
+                )}
               </div>
             </div>
             </>}
@@ -949,6 +974,11 @@ export default function Booking() {
                     <>
                       Tiếp tục bước {currentStep + 1}
                       <ChevronRight className="w-5 h-5" />
+                    </>
+                  ) : !paymentMethod ? (
+                    <>
+                      <Wallet className="w-5 h-5" />
+                      Chọn phương thức thanh toán
                     </>
                   ) : paymentMethod === "cash" ? (
                     <>

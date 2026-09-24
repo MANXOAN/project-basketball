@@ -1,6 +1,5 @@
 import axios from "axios";
 import { cachedGet, invalidateApiCache } from "./apiCache";
-import { demoCourts, demoFields } from "../data/demoData";
 
 // src/lib/api.ts
 // Dùng API cùng origin. Trong dev, Vite proxy chuyển /api về backend duy nhất;
@@ -68,6 +67,23 @@ export type Court = {
   status: string;
   capacity: number;
 };
+
+export type NewsItem = {
+  id: string;
+  title: string;
+  category: string;
+  desc: string;
+  date: string;
+  image: string;
+  sourceUrl: string;
+  source: "VBA";
+};
+
+/** Tin tức VBA được backend tải và chuẩn hoá để tránh lỗi CORS ở trình duyệt. */
+export async function fetchVbaNews(limit = 18) {
+  const response = await api.get<{ items: NewsItem[]; source: string }>("/news", { params: { limit } });
+  return response.data.items;
+}
 
 const basketballLabels = new Set(["basketball", "bóng rổ", "sân bóng rổ"]);
 
@@ -153,11 +169,9 @@ export async function fetchFields(force = false) {
     async () => {
       try {
         const res = await api.get<Field[]>("/fields");
-        const basketballFields = res.data.filter(isBasketballField);
-        if (!basketballFields.length) return demoFields;
-        return [...basketballFields, ...demoFields.filter((demo) => !basketballFields.some((field) => field.id === demo.id))];
+        return res.data.filter(isBasketballField);
       } catch {
-        return demoFields;
+        return [];
       }
     },
     30_000
@@ -170,12 +184,11 @@ export async function fetchCourts(params?: { fieldId?: number | string; status?:
   return cachedGet(
     key,
     async () => {
-      const fallback = params?.fieldId == null ? demoCourts : demoCourts.filter((court) => court.fieldId === Number(params.fieldId));
       try {
         const res = await api.get<Court[]>("/courts", { params });
-        return res.data.length ? res.data : fallback;
+        return res.data;
       } catch {
-        return fallback;
+        return [];
       }
     },
     30_000

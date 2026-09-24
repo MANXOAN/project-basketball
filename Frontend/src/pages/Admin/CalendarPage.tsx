@@ -3,7 +3,6 @@ import { Calendar, Spin } from "antd";
 import type { Dayjs } from "dayjs";
 import { api, Booking } from "../../lib/api";
 import { Info, CalendarDays, CircleCheck, Clock3, MapPin, UserRound, Timer } from "lucide-react";
-import { createDemoBookings } from "../../data/demoData";
 
 export default function CalendarPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -15,9 +14,9 @@ export default function CalendarPage() {
       .get<Booking[]>("/bookings")
       .then((res) => {
         const active = res.data.filter((b) => b.status !== "cancelled");
-        setBookings(active.length ? active : createDemoBookings({ fullName: "Khách demo", phone: "0900000000" }));
+        setBookings(active);
       })
-      .catch(() => setBookings(createDemoBookings({ fullName: "Khách demo", phone: "0900000000" })))
+      .catch(() => setBookings([]))
       .finally(() => setLoading(false));
   }, []);
 

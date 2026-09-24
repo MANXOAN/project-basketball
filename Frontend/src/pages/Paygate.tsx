@@ -9,7 +9,7 @@ export default function Paygate() {
   const location = useLocation();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<"card" | "transfer">("card");
+  const [tab, setTab] = useState<"card" | "transfer" | null>(null);
 
   const payload = location.state?.payload;
   const existingBooking = location.state?.booking;
@@ -67,6 +67,10 @@ export default function Paygate() {
   const paymentKind = isBalancePayment ? "balance" : booking.paymentMethod === "deposit" ? "deposit" : "full";
 
   const handleConfirmPayment = async () => {
+    if (!tab) {
+      toast.error("Vui lòng chọn VNPay hoặc VietQR để tiếp tục");
+      return;
+    }
     if (timeLeft <= 0 && !isBalancePayment) {
       toast.error("Đơn đã hết hạn thanh toán. Vui lòng tạo đơn mới.");
       return;
@@ -167,7 +171,9 @@ export default function Paygate() {
             {/* Tabs */}
             <div className="flex bg-black p-1.5 rounded-2xl border border-white/5 mb-8">
               <button
+                type="button"
                 onClick={() => setTab("card")}
+                aria-pressed={tab === "card"}
                 className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${
                   tab === "card"
                     ? "bg-yellow-500 text-black shadow-lg shadow-yellow-500/20"
@@ -178,7 +184,9 @@ export default function Paygate() {
                 Cổng VNPay
               </button>
               <button
+                type="button"
                 onClick={() => setTab("transfer")}
+                aria-pressed={tab === "transfer"}
                 className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${
                   tab === "transfer"
                     ? "bg-yellow-500 text-black shadow-lg shadow-yellow-500/20"
@@ -189,6 +197,16 @@ export default function Paygate() {
                 Quét mã VietQR
               </button>
             </div>
+
+            {!tab && (
+              <div role="status" className="bg-black/50 border border-white/10 rounded-2xl p-6 mb-6 text-center">
+                <CreditCard className="w-8 h-8 text-yellow-400 mx-auto mb-3" aria-hidden="true" />
+                <h3 className="font-extrabold text-white mb-1">Chọn kênh thanh toán</h3>
+                <p className="text-sm text-gray-400">
+                  Hệ thống chỉ chuyển sang VNPay sau khi bạn chủ động chọn VNPay và bấm xác nhận.
+                </p>
+              </div>
+            )}
 
             {/* Tab 1: VNPay */}
             {tab === "card" && (
@@ -276,13 +294,21 @@ export default function Paygate() {
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
                 Chuyển tới cổng thanh toán VNPay
               </button>
-            ) : (
+            ) : tab === "transfer" ? (
               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
                 <Loader2 className="w-5 h-5 animate-spin text-yellow-400 mx-auto mb-2" />
                 <p className="text-xs text-gray-300">
                   Hệ thống đang tự động lắng nghe giao dịch chuyển khoản...
                 </p>
               </div>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="btn-primary w-full py-4 rounded-xl font-extrabold flex items-center justify-center gap-2 text-base opacity-50 cursor-not-allowed"
+              >
+                Chọn kênh thanh toán để tiếp tục
+              </button>
             )}
           </div>
         </div>

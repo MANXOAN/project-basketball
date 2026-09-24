@@ -6,8 +6,7 @@ import {
   Star, Trophy, Users, Zap,
 } from "lucide-react";
 import banner2 from "../assets/banner2.jpg";
-import { fetchFields, Field, formatCurrency } from "../lib/api";
-import { blogs } from "./blogData";
+import { fetchFields, fetchVbaNews, Field, formatCurrency, NewsItem } from "../lib/api";
 import {
   clubs, locationOptions, rankings, tournaments,
 } from "../data/marketplaceMock";
@@ -29,6 +28,8 @@ const clubTone = {
 export default function Home() {
   const [fields, setFields] = useState<Field[]>([]);
   const [loading, setLoading] = useState(true);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
   const [city, setCity] = useState("Hồ Chí Minh");
   const [district, setDistrict] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -40,6 +41,13 @@ export default function Home() {
       .then((data) => setFields(data.slice(0, 6)))
       .catch(() => setFields([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchVbaNews(3)
+      .then(setNews)
+      .catch(() => setNews([]))
+      .finally(() => setNewsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -351,16 +359,18 @@ export default function Home() {
               <Link to="/blog" className="text-sm font-bold text-slate-600 hover:text-amber-600">Xem tất cả</Link>
             </div>
             <div className="space-y-4">
-              {blogs.slice(0, 3).map((post) => (
-                <Link key={post.id} to={`/blog/${post.id}`} className="group grid grid-cols-[112px_1fr] gap-4 rounded-2xl border border-slate-200 p-3 transition hover:border-amber-300 hover:shadow-md">
-                  <img src={post.image} alt="" loading="lazy" className="h-24 w-28 rounded-xl object-cover" />
+              {newsLoading ? [1, 2, 3].map((item) => (
+                <div key={item} className="h-[120px] animate-pulse rounded-2xl bg-slate-100" />
+              )) : news.length ? news.map((post) => (
+                <a key={post.id} href={post.sourceUrl} target="_blank" rel="noreferrer" className="group grid grid-cols-[112px_1fr] gap-4 rounded-2xl border border-slate-200 p-3 transition hover:border-amber-300 hover:shadow-md">
+                  <img src={post.image || banner2} alt={post.title} loading="lazy" onError={(event) => { event.currentTarget.src = banner2; }} className="h-24 w-28 rounded-xl object-cover" />
                   <span className="min-w-0 py-1">
                     <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-amber-600"><Newspaper className="h-3.5 w-3.5" /> {post.category}</span>
                     <span className="mt-2 line-clamp-2 block font-extrabold leading-snug text-slate-900 transition-colors group-hover:text-amber-600">{post.title}</span>
                     <span className="mt-2 block text-xs text-slate-400">{post.date}</span>
                   </span>
-                </Link>
-              ))}
+                </a>
+              )) : <p className="rounded-2xl border border-slate-200 p-5 text-sm text-slate-500">Chưa thể tải tin tức VBA lúc này.</p>}
             </div>
           </div>
         </div>

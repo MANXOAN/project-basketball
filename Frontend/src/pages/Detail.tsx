@@ -5,7 +5,7 @@ import {
   CalendarDays, Map, Loader2, ChevronRight, Star, Camera, MessageCircle, X,
 } from "lucide-react";
 import { api, Court, Field, formatCurrency, TIME_SLOTS, getBookingsByDate, Booking } from "../lib/api";
-import { getDemoCourts, getDemoField, getFieldGallery, getFieldReviews } from "../data/demoData";
+import { getFieldGallery, getFieldReviews } from "../data/demoData";
 import toast from "react-hot-toast";
 
 export default function Detail() {
@@ -35,14 +35,9 @@ export default function Detail() {
         setField(fRes.data);
         setCourts(cRes.data);
       } catch {
-        const demoField = getDemoField(id);
-        if (demoField) {
-          setField(demoField);
-          setCourts(getDemoCourts(id));
-          toast("Đang hiển thị dữ liệu minh hoạ", { id: "demo-data" });
-        } else {
-          toast.error("Không tìm thấy cơ sở");
-        }
+        setField(null);
+        setCourts([]);
+        toast.error("Không tìm thấy cơ sở");
       } finally {
         setLoading(false);
       }

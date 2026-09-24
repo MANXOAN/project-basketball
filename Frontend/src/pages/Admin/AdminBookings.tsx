@@ -4,7 +4,6 @@ import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
 import * as XLSX from 'xlsx';
 import { formatDateVi } from "../../lib/locale";
-import { createDemoBookings, demoCourts } from "../../data/demoData";
 import { Html5QrcodeScanner } from "html5-qrcode";
 
 export default function AdminBookings() {
@@ -23,14 +22,13 @@ export default function AdminBookings() {
   const fetchBookings = useCallback(async () => {
     try {
       const res = await api.get<Booking[]>("/bookings");
-      const list = res.data.length ? res.data : createDemoBookings({ fullName: "Khách demo", phone: "0900000000" });
-      setBookings([...list].reverse());
+      setBookings([...res.data].reverse());
       api.get<Booking[]>("/bookings/refunds")
         .then((refunds) => setRefundRequests(refunds.data))
         .catch(() => setRefundRequests([]));
     } catch {
-      setBookings(createDemoBookings({ fullName: "Khách demo", phone: "0900000000" }).reverse());
-      message.info("Đang hiển thị dữ liệu minh hoạ.");
+      setBookings([]);
+      message.error("Không tải được danh sách đơn đặt sân.");
     } finally {
       setLoading(false);
     }
@@ -38,7 +36,7 @@ export default function AdminBookings() {
 
   useEffect(() => {
     fetchBookings();
-    api.get<Court[]>("/courts").then(res => setCourts(res.data.length ? res.data : demoCourts)).catch(() => setCourts(demoCourts));
+    api.get<Court[]>("/courts").then((res) => setCourts(res.data)).catch(() => setCourts([]));
   }, [fetchBookings]);
 
   // Không cần F5: khi khách hủy đơn/thanh toán ở thiết bị khác, admin lấy

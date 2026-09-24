@@ -5,7 +5,6 @@ import { api, Booking, formatCurrency } from "../lib/api";
 import { getUser } from "../lib/auth";
 import toast from "react-hot-toast";
 import BookingPass from "../components/BookingPass";
-import { createDemoBookings } from "../data/demoData";
 
 const statusConfig: Record<string, { label: string; className: string; icon: React.ReactNode; dot: string }> = {
   pending: {
@@ -126,12 +125,7 @@ export default function MyBookings() {
           }
         )
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-      setBookings(mine.length ? mine : createDemoBookings({
-        fullName: user.fullName || "Khách hàng GoldenState",
-        phone: user.phone || "0900000000",
-        email: user.email,
-        userId: Number(user.id),
-      }));
+      setBookings(mine);
     } catch {
       toast.error("Không tải được đơn đặt sân");
     } finally {
