@@ -9,6 +9,7 @@ import Court from "./models/Court";
 import Booking from "./models/Booking";
 import Voucher from "./models/Voucher";
 import Payment from "./models/Payment";
+import Customer from "./models/Customer";
 import { setCounter } from "./utils/ids";
 
 const MONGODB_URI =
@@ -59,6 +60,7 @@ function loadMongoDump() {
     "bookings",
     "vouchers",
     "payments",
+    "customers",
   ];
   const data = Object.fromEntries(
     collections.map((collection) => {
@@ -143,6 +145,7 @@ export async function runSeed(disconnect = true) {
     Booking.deleteMany({}),
     Voucher.deleteMany({}),
     Payment.deleteMany({}),
+    Customer.deleteMany({}),
   ]);
 
   for (const u of data.users || []) {
@@ -182,6 +185,10 @@ export async function runSeed(disconnect = true) {
     await Payment.create({ ...p });
   }
 
+  for (const customer of data.customers || []) {
+    await Customer.create(customer);
+  }
+
   const max = (arr, key = "id") =>
     arr && arr.length ? Math.max(...arr.map((x) => Number(x[key]) || 0)) : 0;
 
@@ -190,6 +197,7 @@ export async function runSeed(disconnect = true) {
   await setCounter("courts", max(data.courts));
   await setCounter("bookings", max(data.bookings));
   await setCounter("vouchers", max(data.vouchers));
+  await setCounter("customers", max(data.customers));
   console.log(
     "Seed done:",
     `users=${data.users?.length || 0}`,
@@ -197,7 +205,8 @@ export async function runSeed(disconnect = true) {
     `courts=${data.courts?.length || 0}`,
     `bookings=${data.bookings?.length || 0}`,
     `vouchers=${data.vouchers?.length || 0}`,
-    `payments=${data.payments?.length || 0}`
+    `payments=${data.payments?.length || 0}`,
+    `customers=${data.customers?.length || 0}`
   );
   if (disconnect) await mongoose.disconnect();
 }

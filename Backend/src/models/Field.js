@@ -15,6 +15,7 @@ const fieldSchema = new mongoose.Schema(
     image: { type: String, default: "" },
     courtCount: { type: Number, default: 0 },
     priceFrom: { type: Number, default: 0 },
+    rating: { type: Number, default: 0, min: 0, max: 5 },
     status: { type: String, default: "active" },
     lat: { type: Number },
     lng: { type: Number },

@@ -1,9 +1,15 @@
 import Field from "../models/Field";
 import Court from "../models/Court";
+import Booking from "../models/Booking";
 import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 
 const basketballSportValues = ["basketball", "Bóng rổ", "Bóng Rổ", "Sân Bóng Rổ"];
+const activeBookingStatuses = ["pending", "confirmed", "completed"];
+
+function exactName(value) {
+  return { $regex: new RegExp(`^${String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") };
+}
 
 function basketballFieldPayload(body) {
   return { ...body, sport: "basketball", sportLabel: "Bóng rổ" };
@@ -38,10 +44,10 @@ export async function createField(req, res) {
     const { name } = req.body;
     if (name) {
       const existing = await Field.findOne({
-        name: { $regex: new RegExp(`^${name}$`, "i") }
+        name: exactName(name)
       });
       if (existing) {
-        return res.status(409).json({ message: "Tên cơ sở đã tồn tại" });
+        return res.status(409).json({ message: "Tên cơ sở đã tồn tại, vui lòng nhập tên khác!" });
       }
     }
     const id = await nextId("fields");
@@ -57,11 +63,11 @@ export async function updateField(req, res) {
     const id = Number(req.params.id);
     if (req.body.name) {
       const existing = await Field.findOne({
-        name: { $regex: new RegExp(`^${req.body.name}$`, "i") },
+        name: exactName(req.body.name),
         id: { $ne: id }
       });
       if (existing) {
-        return res.status(409).json({ message: "Tên cơ sở đã tồn tại" });
+        return res.status(409).json({ message: "Tên cơ sở đã tồn tại, vui lòng nhập tên khác!" });
       }
     }
     const field = await Field.findOneAndUpdate(
@@ -79,8 +85,16 @@ export async function updateField(req, res) {
 export async function deleteField(req, res) {
   try {
     const id = Number(req.params.id);
-    const field = await Field.findOneAndDelete({ id });
+    const field = await Field.findOne({ id });
     if (!field) return res.status(404).json({ message: "Not found" });
+    const courts = await Court.find({ fieldId: id }).select("id");
+    const courtIds = courts.map((court) => court.id);
+    const booking = await Booking.findOne({
+      status: { $in: activeBookingStatuses },
+      $or: [{ fieldId: id }, { courtId: { $in: courtIds } }, { reservedCourtIds: { $in: courtIds } }],
+    });
+    if (booking) return res.status(409).json({ message: "Không thể xóa cơ sở này vì đang có sân con chứa đơn đặt sân!" });
+    await Field.deleteOne({ id });
     await Court.deleteMany({ fieldId: id });
     return res.json(serialize(field));
   } catch (e) {

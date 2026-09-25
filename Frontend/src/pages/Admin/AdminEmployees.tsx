@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { Table, Button, Modal, Form, Select, message, Spin, Tag, Input } from "antd";
-import { Users, Shield, ShieldCheck, Mail, Lock, Plus, UserRound, Activity } from "lucide-react";
+import { Table, Button, Modal, Form, Select, message, Spin, Tag, Input, Popconfirm, Space, Switch } from "antd";
+import { Users, Shield, ShieldCheck, Mail, Lock, Plus, UserRound, Activity, Edit } from "lucide-react";
 import { api } from "../../lib/api";
 
 export default function AdminEmployees() {
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<any>(null);
     const [form] = Form.useForm();
 
     const fetchUsers = async () => {
@@ -24,7 +25,7 @@ export default function AdminEmployees() {
         fetchUsers();
     }, []);
 
-    const handleCreate = async (values: any) => {
+    const handleSave = async (values: any) => {
         try {
             const payload = {
                 name: values.fullName || values.name,
@@ -35,11 +36,12 @@ export default function AdminEmployees() {
                 role: values.role || "manager",
             };
     
-            await api.post("/users", payload);
+            if (editingUser) await api.patch(`/users/${editingUser.id}/admin`, payload);
+            else await api.post("/users", payload);
     
-            message.success("Tạo nhân viên thành công!");
+            message.success(editingUser ? "Cập nhật nhân sự thành công!" : "Tạo nhân viên thành công!");
             setIsModalOpen(false);
-            form.resetFields();
+            form.resetFields(); setEditingUser(null);
             fetchUsers();
         } catch (error: any) {
             // Bắt thông báo lỗi từ Backend trả về (ví dụ: "Email already exists")
@@ -50,6 +52,12 @@ export default function AdminEmployees() {
                 message.error(errorMsg);
             }
         }
+    };
+
+    const openModal = (user?: any) => { setEditingUser(user || null); form.setFieldsValue(user || { role: "manager" }); setIsModalOpen(true); };
+    const toggleStatus = async (user: any) => {
+        try { await api.patch(`/users/${user.id}/status`, { isActive: !user.isActive }); message.success(user.isActive ? "Đã khóa tài khoản" : "Đã mở khóa tài khoản"); fetchUsers(); }
+        catch (error: any) { message.error(error.response?.data?.message || "Không thể cập nhật trạng thái"); }
     };
 
     const changeRole = async (id: number, newRole: string) => {
@@ -68,6 +76,8 @@ export default function AdminEmployees() {
             dataIndex: "fullName",
             render: (t: string) => <span className="font-bold text-gray-800">{t}</span>
         },
+        { title: "Trạng thái", render: (_: unknown, user: any) => <Switch checked={user.isActive !== false} checkedChildren="Hoạt động" unCheckedChildren="Đã khóa" onChange={() => toggleStatus(user)} /> },
+        { title: "Thao tác", align: "right" as const, render: (_: unknown, user: any) => <Space><Button type="text" aria-label={`Sửa ${user.fullName}`} onClick={() => openModal(user)}><Edit size={18} /></Button><Popconfirm title={user.isActive === false ? "Mở khóa tài khoản này?" : "Khóa tài khoản này?"} onConfirm={() => toggleStatus(user)} okText="Xác nhận" cancelText="Hủy"><Button type="text" danger={user.isActive !== false}>{user.isActive === false ? "Mở khóa" : "Khóa"}</Button></Popconfirm></Space> },
         {
             title: "Email / Đăng nhập",
             dataIndex: "email",
@@ -112,7 +122,7 @@ export default function AdminEmployees() {
                     </h1>
                     <p className="text-gray-500 mt-2 font-medium">Bảo mật hệ thống, cấp quyền truy cập theo từng chức vụ</p>
                 </div>
-                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black font-bold px-6 !border-0 shadow-lg shadow-yellow-500/20 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
+                <Button size="large" type="primary" onClick={() => openModal()} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black font-bold px-6 !border-0 shadow-lg shadow-yellow-500/20 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
                     <Plus className="mr-2" size={20} /> Thêm nhân sự
                 </Button>
             </div>
@@ -133,22 +143,22 @@ export default function AdminEmployees() {
             </div>
 
             <Modal
-                title={<div className="font-black text-xl flex items-center gap-2"><Shield className="text-blue-500" /> Thêm Nhân Sự Mới</div>}
+                title={<div className="font-black text-xl flex items-center gap-2"><Shield className="text-blue-500" /> {editingUser ? "Cập nhật Nhân Sự" : "Thêm Nhân Sự Mới"}</div>}
                 open={isModalOpen}
-                onCancel={() => setIsModalOpen(false)}
+                onCancel={() => { setIsModalOpen(false); setEditingUser(null); }}
                 footer={null}
                 className="rounded-2xl"
             >
-                <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4" initialValues={{ role: 'manager' }}>
+                <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4" initialValues={{ role: 'manager' }}>
                     <Form.Item name="fullName" label="Tên nhân viên" rules={[{ required: true }]}>
                         <Input size="large" className="rounded-xl" />
                     </Form.Item>
                     <Form.Item name="email" label="Email đăng nhập" rules={[{ required: true, type: 'email' }]}>
                         <Input size="large" className="rounded-xl" />
                     </Form.Item>
-                    <Form.Item name="password" label="Mật khẩu ban đầu" rules={[{ required: true }, { min: 6, message: "Tối thiểu 6 ký tự" }]}>
+                    {!editingUser && <Form.Item name="password" label="Mật khẩu ban đầu" rules={[{ required: true }, { min: 6, message: "Tối thiểu 6 ký tự" }]}>
                         <Input.Password size="large" className="rounded-xl" autoComplete="new-password" />
-                    </Form.Item>
+                    </Form.Item>}
                     <Form.Item name="role" label={<span className="font-semibold text-gray-700 mt-2">Vai trò</span>} rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl">
                             <Select.Option value="admin">Admin - Quản trị hệ thống</Select.Option>
@@ -157,7 +167,7 @@ export default function AdminEmployees() {
                         </Select>
                     </Form.Item>
                     <Button type="primary" htmlType="submit" size="large" block className="mt-4 bg-gradient-to-r from-cyan-600 to-blue-600 border-0 shadow-lg shadow-cyan-500/30 h-12 text-lg font-black rounded-2xl">
-                        TẠO TÀI KHOẢN
+                        {editingUser ? "LƯU THAY ĐỔI" : "TẠO TÀI KHOẢN"}
                     </Button>
                 </Form>
             </Modal>

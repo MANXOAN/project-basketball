@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User";
 
 export function authRequired(req, res, next) {
   const header = req.headers.authorization || "";

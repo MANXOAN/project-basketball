@@ -1,65 +1,32 @@
 function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-function money(value) {
-  return `${Number(value || 0).toLocaleString("vi-VN")} VNĐ`;
+function money(value) { return `${Number(value || 0).toLocaleString("vi-VN")} ₫`; }
+
+function row(label, value, accent = false) {
+  return `<tr><td style="padding:11px 0;border-bottom:1px solid #edf0f4;color:#64748b;font-size:13px;">${label}</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf0f4;color:${accent ? "#b45309" : "#172033"};font-size:13px;font-weight:700;">${value}</td></tr>`;
+}
+
+function shell(content) {
+  return `<!doctype html><html lang="vi"><body style="margin:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#172033;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:28px 12px;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,.1);">${content}</table><p style="color:#718096;font-size:12px;">GoldenState Basketball · Email xác nhận tự động</p></td></tr></table></body></html>`;
 }
 
 export function buildPaymentConfirmationEmail(booking, payment) {
   const code = `BK${String(booking.id).padStart(6, "0")}`;
-  const serviceRows = (booking.services || []).map((service) =>
-    `<li>${escapeHtml(service.name)} × ${Number(service.quantity || 0)} — ${money(Number(service.price || 0) * Number(service.quantity || 0))}</li>`
-  ).join("");
-  const paymentLabel = payment.paymentKind === "deposit"
-    ? "Thanh toán tiền cọc"
-    : payment.paymentKind === "balance"
-      ? "Thanh toán phần còn lại"
-      : "Thanh toán toàn bộ";
-  const orderTotal = Number(booking.groupTotal || booking.total || 0);
-  const totalPaid = payment.paymentKind === "deposit" ? Number(payment.amount) : orderTotal;
-  const scheduleRows = Array.isArray(booking.schedule) && booking.schedule.length > 1
-    ? booking.schedule.map((item) => `<li>${escapeHtml(item.date)} lúc ${escapeHtml(item.time)}</li>`).join("")
-    : "";
-
+  const label = payment.paymentKind === "deposit" ? "Thanh toán tiền cọc" : payment.paymentKind === "balance" ? "Thanh toán phần còn lại" : "Thanh toán toàn bộ";
+  const total = Number(booking.groupTotal || booking.total || 0);
+  const paid = Number(booking.paidAmount ?? (payment.paymentKind === "deposit" ? payment.amount : total));
+  const remaining = Math.max(0, total - paid);
+  const schedules = Array.isArray(booking.schedule) ? booking.schedule : [];
+  const scheduleBlock = schedules.length > 1 ? `<div style="margin-top:18px;padding:15px;background:#f8fafc;border-radius:12px;"><div style="font-size:12px;font-weight:700;color:#64748b;">LỊCH ĐẶT ${schedules.length} BUỔI</div>${schedules.map((item) => `<div style="padding-top:7px;font-size:14px;color:#334155;">${escapeHtml(item.date)} · ${escapeHtml(item.time)}</div>`).join("")}</div>` : "";
   return {
-    subject: `Xác nhận thanh toán đơn ${code}`,
-    html: `
-      <h2>Thanh toán thành công</h2>
-      <p>Xin chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p>
-      <p>Hệ thống đã ghi nhận <strong>${escapeHtml(paymentLabel)}</strong> cho đơn <strong>${code}</strong>.</p>
-      <ul>
-        <li>Cơ sở: ${escapeHtml(booking.fieldName)}</li>
-        <li>Sân: ${escapeHtml(booking.court)}</li>
-        <li>Ngày chơi đầu tiên: ${escapeHtml(booking.date)}</li>
-        <li>Khung giờ đầu tiên: ${escapeHtml(booking.time)} (${Number(booking.duration || 1)} giờ)</li>
-        ${scheduleRows ? `<li>Số buổi: ${booking.schedule.length}</li>` : ""}
-        <li>Số tiền giao dịch: ${money(payment.amount)}</li>
-        <li>Đã thanh toán: ${money(totalPaid)}</li>
-        <li>Tổng đơn: ${money(orderTotal)}</li>
-        <li>Mã giao dịch: ${escapeHtml(payment.transactionCode || payment.paymentCode)}</li>
-        ${booking.voucherCode ? `<li>Voucher: ${escapeHtml(booking.voucherCode)}${booking.groupSize > 1 ? "" : ` (giảm ${money(booking.discount)})`}</li>` : ""}
-      </ul>
-      ${scheduleRows ? `<p><strong>Toàn bộ lịch đã đặt:</strong></p><ul>${scheduleRows}</ul>` : ""}
-      ${serviceRows ? `<p><strong>Dịch vụ:</strong></p><ul>${serviceRows}</ul>` : ""}
-      <p>Thông tin khách: ${escapeHtml(booking.customer?.fullName)} — ${escapeHtml(booking.customer?.phone)}</p>
-      <p>Vui lòng giữ email này để đối chiếu khi đến sân.</p>
-    `,
+    subject: `✓ Thanh toán thành công · ${code}`,
+    html: shell(`<tr><td style="padding:26px 32px;background:#0f172a;color:#fff;"><div style="color:#fbbf24;font-size:12px;font-weight:700;letter-spacing:.12em;">GOLDENSTATE BASKETBALL</div><div style="margin-top:7px;font-size:23px;font-weight:700;">Xác nhận thanh toán</div></td></tr><tr><td style="padding:28px 32px 10px;"><p style="margin:0 0 8px;font-size:16px;font-weight:700;">Chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p><p style="margin:0;color:#526176;font-size:14px;line-height:22px;">Chúng tôi đã nhận được <b>${label.toLowerCase()}</b> cho đơn đặt sân của bạn.</p></td></tr><tr><td style="padding:20px 32px;"><div style="padding:18px 20px;border:1px solid #e5eaf0;border-radius:14px;background:#fffdf5;"><table width="100%"><tr><td><div style="font-size:12px;color:#64748b;">MÃ CHECK-IN</div><div style="margin-top:4px;font-family:monospace;font-size:22px;font-weight:700;">${code}</div></td><td align="right"><div style="font-size:12px;color:#64748b;">ĐÃ THANH TOÁN</div><div style="margin-top:4px;font-size:20px;font-weight:700;color:#b45309;">${money(paid)}</div></td></tr></table></div></td></tr><tr><td style="padding:0 32px;"><div style="font-size:12px;font-weight:700;color:#64748b;">THÔNG TIN ĐẶT SÂN</div><table width="100%" cellspacing="0" cellpadding="0">${row("Cơ sở", escapeHtml(booking.fieldName))}${booking.fieldAddress ? row("Địa chỉ", escapeHtml(booking.fieldAddress)) : ""}${row("Sân", escapeHtml(booking.court))}${row("Thời gian", `${escapeHtml(booking.date)} · ${escapeHtml(booking.time)} (${Number(booking.duration || 1)} giờ)`)}</table>${scheduleBlock}</td></tr><tr><td style="padding:20px 32px 30px;"><div style="font-size:12px;font-weight:700;color:#64748b;">CHI TIẾT GIAO DỊCH</div><table width="100%" cellspacing="0" cellpadding="0">${row("Giao dịch lần này", money(payment.amount), true)}${row("Tổng đơn", money(total))}${row("Còn lại cần thanh toán", money(remaining), remaining > 0)}${booking.voucherCode ? row("Voucher", `${escapeHtml(booking.voucherCode)} · giảm ${money(booking.discount)}`) : ""}${row("Mã giao dịch", escapeHtml(payment.transactionCode || payment.paymentCode))}</table><div style="margin-top:20px;padding:14px 16px;background:#eff6ff;border-radius:10px;color:#334155;font-size:13px;line-height:20px;"><b>Thông tin khách:</b> ${escapeHtml(booking.customer?.fullName)} · ${escapeHtml(booking.customer?.phone)}<br>Đưa mã check-in cho lễ tân để xác nhận hoặc in lại vé.</div></td></tr>`),
   };
 }
 
 export function buildPaymentRefundPendingEmail(booking, payment) {
   const code = `BK${String(booking.id).padStart(6, "0")}`;
-  return {
-    subject: `Giao dịch cần hoàn tiền cho đơn ${code}`,
-    html: `<h2>Hệ thống đã ghi nhận khoản thanh toán dư hoặc quá hạn</h2>
-      <p>Xin chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p>
-      <p>Giao dịch ${escapeHtml(payment.transactionCode || payment.paymentCode)} trị giá <strong>${money(payment.amount)}</strong> không được cộng thêm vào đơn ${code}. Khoản này đã được đưa vào hàng chờ hoàn tiền.</p>
-      <p>Bộ phận quản lý sẽ kiểm tra và xử lý hoàn tiền cho bạn.</p>`,
-  };
+  return { subject: `Thông báo hoàn tiền · ${code}`, html: shell(`<tr><td style="padding:30px 32px;"><p>Chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p><p>Khoản thanh toán <b>${money(payment.amount)}</b> cho đơn <b>${code}</b> đang được xử lý hoàn tiền.</p></td></tr>`) };
 }

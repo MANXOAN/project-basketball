@@ -5,6 +5,8 @@ import {
 	listUsers,
 	createUser,
 	updateUserRole,
+	updateUserByAdmin,
+	updateUserStatus,
 	forgotPassword,
 	resetPassword,
 } from "../controllers/auth";
@@ -19,6 +21,8 @@ router.post("/reset-password", resetPassword);
 router.get("/users", adminRequired, listUsers);
 router.post("/users", adminRequired, createUser);
 router.patch("/users/:id/role", adminRequired, updateUserRole);
+router.patch("/users/:id/admin", adminRequired, updateUserByAdmin);
+router.patch("/users/:id/status", adminRequired, updateUserStatus);
 router.patch("/users/:id", authRequired, updateProfile);
 router.patch("/users/:id/password", authRequired, changePassword);
 

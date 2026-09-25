@@ -31,6 +31,7 @@ const AdminLayout = lazy(() => import("./layouts/AdminLayout"));
 const AdminBookings = lazy(() => import("./pages/Admin/AdminBookings"));
 const Dashboard = lazy(() => import("./pages/Admin/Dashboard"));
 const Courts = lazy(() => import("./pages/Admin/Courts"));
+const Facilities = lazy(() => import("./pages/Admin/Facilities"));
 const CalendarPage = lazy(() => import("./pages/Admin/CalendarPage"));
 const AdminCustomers = lazy(() => import("./pages/Admin/AdminCustomers"));
 const AdminVouchers = lazy(() => import("./pages/Admin/AdminVouchers"));
@@ -122,6 +123,7 @@ function App() {
               <Courts />
             </ProtectedRoute>
           } />
+          <Route path="facilities" element={<ProtectedRoute allowedRoles={["manager"]}><Facilities /></ProtectedRoute>} />
           <Route path="customers" element={<AdminCustomers />} />
           <Route path="vouchers" element={
             <ProtectedRoute allowedRoles={["admin"]}>

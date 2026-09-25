@@ -59,6 +59,7 @@ export async function login(req, res) {
     if (!user) {
       return res.status(400).json({ message: "Cannot find user" });
     }
+    if (!user.isActive) return res.status(403).json({ message: "Tài khoản đã bị khóa" });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
       return res.status(400).json({ message: "Incorrect password" });
@@ -180,6 +181,36 @@ export async function updateUserRole(req, res) {
   } catch (e) {
     return res.status(400).json({ message: e.message });
   }
+}
+
+/** PATCH /users/:id/admin — admin cập nhật thông tin nhân sự. */
+export async function updateUserByAdmin(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const user = await User.findOne({ id });
+    if (!user) return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+    const fullName = String(req.body.fullName ?? user.fullName).trim();
+    const email = String(req.body.email ?? user.email).trim().toLowerCase();
+    const role = String(req.body.role ?? user.role);
+    if (!email) return res.status(400).json({ message: "Email là bắt buộc" });
+    if (!["admin", "manager", "user"].includes(role)) return res.status(400).json({ message: "Vai trò không hợp lệ" });
+    if (await User.exists({ email, id: { $ne: id } })) return res.status(409).json({ message: "Email already exists" });
+    if (Number(req.user?.id) === id && role !== "admin") return res.status(400).json({ message: "Không thể tự gỡ quyền admin của chính mình" });
+    user.fullName = fullName; user.email = email; user.phone = String(req.body.phone ?? user.phone).trim(); user.role = role;
+    await user.save();
+    return res.json(serialize(user));
+  } catch (e) { return res.status(400).json({ message: e.message }); }
+}
+
+/** PATCH /users/:id/status — khóa/mở khóa tài khoản, vẫn giữ lịch sử dữ liệu. */
+export async function updateUserStatus(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (Number(req.user?.id) === id && req.body.isActive === false) return res.status(400).json({ message: "Không thể tự khóa tài khoản của mình" });
+    const user = await User.findOneAndUpdate({ id }, { $set: { isActive: Boolean(req.body.isActive) } }, { new: true, runValidators: true });
+    if (!user) return res.status(404).json({ message: "Không tìm thấy tài khoản" });
+    return res.json(serialize(user));
+  } catch (e) { return res.status(400).json({ message: e.message }); }
 }
 
 /** PATCH /users/:id — user tự cập nhật thông tin cơ bản */

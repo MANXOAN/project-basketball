@@ -14,6 +14,7 @@ import vnpayRouter from "./routes/vnpay";
 import newsRouter from "./routes/news";
 import { expirePendingPayments } from "./controllers/booking";
 import notificationRouter from "./routes/notification";
+import customerRouter from "./routes/customer";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,6 +41,7 @@ app.use("/vouchers", voucherRouter);
 app.use("/vnpay", vnpayRouter);
 app.use("/news", newsRouter);
 app.use("/notifications", notificationRouter);
+app.use("/customers", customerRouter);
 
 
 // alias /api/*
@@ -51,6 +53,7 @@ app.use("/api/vouchers", voucherRouter);
 app.use("/api/vnpay", vnpayRouter);
 app.use("/api/news", newsRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/customers", customerRouter);
 
 app.get("/", (_req, res) => {
   res.json({

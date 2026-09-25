@@ -23,6 +23,7 @@ const bookingSchema = new mongoose.Schema(
     isGroupPrimary: { type: Boolean, default: false },
     courtId: { type: Number, required: true, index: true },
     fieldName: { type: String, default: "" },
+    fieldAddress: { type: String, default: "" },
     court: { type: String, default: "" },
     date: { type: String, required: true, index: true },
     time: { type: String, required: true },

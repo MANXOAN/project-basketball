@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import type { ThHTMLAttributes } from "react";
 import type { Dayjs } from "dayjs";
-import { Table, Button, Input, Modal, Form, Select, InputNumber, Switch, message, Spin, DatePicker } from "antd";
-import { Ticket, Plus, Search, Percent, DollarSign, BarChart3, CheckCircle2, Archive } from "lucide-react";
+import { Table, Button, Input, Modal, Form, Select, InputNumber, Switch, message, Spin, DatePicker, Popconfirm, Space } from "antd";
+import { Ticket, Plus, Search, Percent, DollarSign, BarChart3, CheckCircle2, Archive, Edit, Trash2 } from "lucide-react";
+import dayjs from "dayjs";
 import { api, formatCurrency } from "../../lib/api";
 
 interface Voucher {
@@ -30,6 +31,7 @@ export default function AdminVouchers() {
     const [vouchers, setVouchers] = useState<Voucher[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
     const [form] = Form.useForm();
     const [searchText, setSearchText] = useState("");
     const voucherType = Form.useWatch("type", form);
@@ -49,9 +51,9 @@ export default function AdminVouchers() {
         fetchVouchers();
     }, []);
 
-    const handleCreate = async (values: VoucherFormValues) => {
+    const handleSave = async (values: VoucherFormValues) => {
         try {
-            await api.post("/vouchers", {
+            const payload = {
                 code: values.code.trim().toUpperCase(),
                 type: values.type,
                 discount: values.discount,
@@ -59,15 +61,27 @@ export default function AdminVouchers() {
                 status: values.status ? 'active' : 'inactive',
                 startsAt: values.validity?.[0]?.startOf("day").toISOString() || null,
                 endsAt: values.validity?.[1]?.endOf("day").toISOString() || null,
-            });
-            message.success("Tạo mã thành công!");
+            };
+            if (editingVoucher) await api.put(`/vouchers/${editingVoucher.id}`, payload);
+            else await api.post("/vouchers", payload);
+            message.success(editingVoucher ? "Đã cập nhật voucher!" : "Tạo mã thành công!");
             setIsModalOpen(false);
-            form.resetFields();
+            form.resetFields(); setEditingVoucher(null);
             fetchVouchers();
         } catch (error: unknown) {
             const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
             message.error(errorMessage || "Không thể tạo voucher");
         }
+    };
+
+    const openModal = (voucher?: Voucher) => {
+        setEditingVoucher(voucher || null);
+        form.setFieldsValue(voucher ? { ...voucher, status: voucher.status === "active", validity: voucher.startsAt && voucher.endsAt ? [dayjs(voucher.startsAt), dayjs(voucher.endsAt)] : undefined } : { type: "percent", status: true });
+        setIsModalOpen(true);
+    };
+    const removeVoucher = async (id: number) => {
+        try { await api.delete(`/vouchers/${id}`); message.success("Đã xóa voucher"); fetchVouchers(); }
+        catch (error: any) { message.error(error.response?.data?.message || "Không thể xóa voucher"); }
     };
 
     const toggleStatus = async (id: number, currentStatus: string) => {
@@ -125,6 +139,7 @@ export default function AdminVouchers() {
                 />
             )
         }
+        , { title: "Thao tác", align: "right" as const, render: (_: unknown, voucher: Voucher) => <Space><Button type="text" aria-label={`Sửa voucher ${voucher.code}`} onClick={() => openModal(voucher)}><Edit size={18} /></Button><Popconfirm title={`Xóa voucher ${voucher.code}?`} onConfirm={() => removeVoucher(voucher.id)} okText="Xóa" cancelText="Hủy"><Button type="text" danger aria-label={`Xóa voucher ${voucher.code}`}><Trash2 size={18} /></Button></Popconfirm></Space> }
     ];
 
     if (loading) return <div className="flex justify-center py-40"><Spin size="large" /></div>;
@@ -141,7 +156,7 @@ export default function AdminVouchers() {
                     </h1>
                     <p className="text-gray-500 mt-2 font-medium">Tạo và quản lý các chiến dịch Voucher/Khuyến mãi</p>
                 </div>
-                <Button size="large" type="primary" onClick={() => setIsModalOpen(true)} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black border-0 shadow-lg shadow-yellow-500/20 font-bold px-6 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
+                <Button size="large" type="primary" onClick={() => openModal()} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black border-0 shadow-lg shadow-yellow-500/20 font-bold px-6 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
                     <Plus className="mr-2" size={20} /> Tạo mã mới
                 </Button>
             </div>
@@ -169,14 +184,14 @@ export default function AdminVouchers() {
             </div>
 
             <Modal
-                title={<div className="font-black text-xl flex items-center gap-2"><Ticket className="text-emerald-500" /> Tạo Mã Giảm Giá (Voucher)</div>}
+                title={<div className="font-black text-xl flex items-center gap-2"><Ticket className="text-emerald-500" /> {editingVoucher ? "Cập nhật Voucher" : "Tạo Mã Giảm Giá (Voucher)"}</div>}
                 open={isModalOpen}
-                onCancel={() => setIsModalOpen(false)}
+                onCancel={() => { setIsModalOpen(false); setEditingVoucher(null); }}
                 footer={null}
                 width={500}
                 className="rounded-2xl"
             >
-                <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4" initialValues={{ type: 'percent', status: true }}>
+                <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4" initialValues={{ type: 'percent', status: true }}>
                     <Form.Item name="code" label={<span className="font-semibold text-gray-700">Mã Code (VD: GIOVANG50)</span>} rules={[{ required: true, message: "Nhập mã voucher" }, { pattern: new RegExp("^[A-Za-z0-9_-]{3,32}" + String.fromCharCode(36)), message: "Dùng 3-32 ký tự chữ, số, - hoặc _" }]}>
                         <Input size="large" className="rounded-xl font-bold uppercase text-blue-600" />
                     </Form.Item>
@@ -206,7 +221,7 @@ export default function AdminVouchers() {
                     </Form.Item>
 
                     <Button type="primary" htmlType="submit" size="large" block className="mt-4 bg-emerald-600 hover:bg-emerald-700 h-12 text-lg font-black tracking-wide shadow-lg shadow-emerald-500/30 rounded-xl">
-                        TẠO MÃ
+                        {editingVoucher ? "LƯU THAY ĐỔI" : "TẠO MÃ"}
                     </Button>
                 </Form>
             </Modal>

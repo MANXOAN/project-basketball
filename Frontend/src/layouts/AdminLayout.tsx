@@ -32,6 +32,11 @@ export default function AdminLayout() {
             label: <Link to="/admin/courts" className="text-sm font-semibold">Quản lý sân bãi</Link>,
         },
         {
+            key: "/admin/facilities",
+            icon: <Trophy size={18} />,
+            label: <Link to="/admin/facilities" className="text-sm font-semibold">Cơ sở sân</Link>,
+        },
+        {
             key: "/admin/customers",
             icon: <User size={18} />,
             label: <Link to="/admin/customers" className="text-sm font-semibold">Khách hàng</Link>,
@@ -49,7 +54,7 @@ export default function AdminLayout() {
     ];
 
     const visibleMenuItems = menuItems.filter((item) => {
-        if (item.key === "/admin/courts") return user?.role === "manager";
+        if (item.key === "/admin/courts" || item.key === "/admin/facilities") return user?.role === "manager";
         if (item.key === "/admin/vouchers" || item.key === "/admin/employees") return user?.role === "admin";
         return true;
     });
