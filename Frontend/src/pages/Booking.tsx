@@ -250,9 +250,7 @@ export default function Booking() {
     };
   }, [courtId, date, refreshBookedSlots]);
 
-  // Chỉ làm mờ các mốc thực sự nằm trong ca đã giữ. Ví dụ ca 16:00–18:00
-  // làm mờ 16:00, 16:30, 17:00, 17:30; 15:30 vẫn hiện để báo va chạm rõ ràng
-  // nếu người dùng chọn thời lượng kéo sang ca đã giữ.
+  // Chỉ làm mờ các mốc thực sự nằm trong ca đã giữ.
   const slotDisabled = (slot: string) => {
     if (isPastVietnamSlot(date, slot, clockNow)) return true;
     const [hour, minute] = slot.split(":").map(Number);
@@ -472,11 +470,7 @@ export default function Booking() {
     };
 
     try {
-      // Tạo đơn trước khi vào Paygate để khách thoát trang vẫn thấy một đơn
-      // "chưa thanh toán". Backend luôn khởi tạo paymentStatus = unpaid.
       const res = await api.post("/bookings", payload);
-      // Đơn đã được backend giữ slot ngay tại đây, trước khi chuyển Paygate.
-      // Xóa cache và cập nhật UI tức thì để quay lại không cần F5.
       for (const bookedDate of [...new Set(recurringDates)]) {
         invalidateApiCache(`bookings:date:${bookedDate}`);
       }
@@ -506,8 +500,16 @@ export default function Booking() {
       setLoading(false);
       navigate("/paygate", { state: { payload, booking: res.data, deposit, total } });
     } catch (error: unknown) {
-      const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(errorMessage || "Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
+      const err = error as { response?: { status?: number; data?: { message?: string } } };
+      const errorMessage = err?.response?.data?.message;
+
+      // Xử lý tự động khi dính lỗi 409 Conflict: Reload lại lịch sân để cập nhật dữ liệu mới nhất
+      if (err?.response?.status === 409) {
+        toast.error(errorMessage || "Khung giờ này vừa có người đặt. Lịch sân đã được tự động cập nhật lại!");
+        await refreshBookedSlots(true);
+      } else {
+        toast.error(errorMessage || "Tạo đơn đặt sân thất bại. Vui lòng thử lại!");
+      }
       setLoading(false);
     }
   };
@@ -586,7 +588,6 @@ export default function Booking() {
   return (
     <div className="min-h-screen bg-[#f7f8f6] text-slate-700 py-10 px-4">
       <div className="max-w-7xl mx-auto">
-        {/* Breadcrumb */}
         <div className="text-xs text-gray-500 mb-8 flex items-center gap-2 tracking-wide uppercase font-bold">
           <Link to="/" className="hover:text-yellow-400 transition-colors">Trang chủ</Link>
           <ChevronRight className="w-3 h-3" />
@@ -628,10 +629,8 @@ export default function Booking() {
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Main Booking Form */}
           <div className="lg:col-span-2 space-y-6">
             {currentStep === 1 && <>
-            {/* 1. Chọn sân */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
               <h3 className="text-lg font-extrabold text-slate-950 mb-2 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">1</span>
@@ -700,7 +699,6 @@ export default function Booking() {
               </div>}
             </div>
 
-            {/* 2. Ngày & Giờ */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
               <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">2</span>
@@ -742,7 +740,6 @@ export default function Booking() {
                 </div>
               </div>
 
-              {/* Khung giờ */}
               <div className="mb-6">
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
                   Chọn khung giờ bắt đầu
@@ -772,7 +769,6 @@ export default function Booking() {
                 </div>
               </div>
 
-              {/* Thời lượng */}
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
                   Thời lượng thuê
@@ -870,7 +866,6 @@ export default function Booking() {
             </>}
 
             {currentStep === 2 && <>
-            {/* 3. Dịch vụ tiện ích */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
               <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">3</span>
@@ -911,7 +906,6 @@ export default function Booking() {
               </div>
             </div>
 
-            {/* 4. Thông tin người đặt */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
               <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">4</span>
@@ -925,7 +919,7 @@ export default function Booking() {
                     name="fullName"
                     value={customer.fullName}
                     onChange={handleCustomerChange}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
                     placeholder="Nguyễn Văn A"
                   />
                 </div>
@@ -935,7 +929,7 @@ export default function Booking() {
                     name="phone"
                     value={customer.phone}
                     onChange={handleCustomerChange}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
                     placeholder="0987xxxxxx"
                   />
                 </div>
@@ -957,7 +951,6 @@ export default function Booking() {
             </>}
 
             {currentStep === 3 && <>
-            {/* 5. Phương thức thanh toán */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm">
               <h3 className="text-lg font-extrabold text-slate-950 mb-6 flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black">5</span>
@@ -1046,7 +1039,6 @@ export default function Booking() {
 
           </div>
 
-          {/* Sticky Order Summary Sidebar */}
           <div className="lg:col-span-1">
             <div className="sticky top-24">
               <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm relative overflow-hidden">
@@ -1091,7 +1083,6 @@ export default function Booking() {
                     </div>
                   )}
 
-                  {/* Voucher code */}
                   <div className="pt-2 pb-3">
                     <div className="flex gap-2">
                       <input

@@ -229,8 +229,6 @@ export async function getBooking(req, res) {
   }
 }
 
-// Chi tiết đơn cho màn khách hàng: bổ sung thông tin cơ sở/sân thực tế,
-// không tin vào fieldName/court do client từng gửi lúc tạo đơn.
 export async function getBookingDetail(req, res) {
   try {
     const id = Number(req.params.id);
@@ -291,7 +289,6 @@ export async function getBookingDetail(req, res) {
   }
 }
 
-// Danh sách nghiệp vụ dành cho admin: các đơn khách đã hủy có/đã có hoàn tiền.
 export async function getRefundRequests(_req, res) {
   try {
     const list = await Booking.find({
@@ -550,7 +547,7 @@ export async function createBooking(req, res) {
         { $set: { voucherClaimed: true } }
       );
       if (markedGroup.modifiedCount !== 1) {
-        await Voucher.updateOne({ id: voucher.id, used: { $gt: 0 } }, { $inc: { used: -1 } });
+        await Voucher.updateOne({ id: voucher.id, used: { $gt: 0 } }, {$inc: { used: -1 } });
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
