@@ -59,7 +59,7 @@ Quy tắc dùng múi giờ Việt Nam UTC+7 và cập nhật giao diện mỗi 3
 
 ## 4. Đặt lịch định kỳ và nhiều giai đoạn
 
-1. Chọn ngày đầu, ngày kết thúc và giờ cố định theo tuần.
+1. Chọn ngày bắt đầu, ngày kết thúc, giờ và tần suất hằng ngày hoặc hằng tuần. Khoảng ngày tính cả ngày đầu lẫn ngày cuối; ví dụ 26/09–02/10 là 7 buổi hằng ngày.
 2. Kiểm tra danh sách occurrence, tổng số buổi và tổng tiền.
 3. Bấm `Thêm giai đoạn`, chọn ngày kế tiếp hoặc tháng kế tiếp và đổi giờ.
 4. Lịch tổng phải gồm đầy đủ các giai đoạn, tối đa 60 buổi.

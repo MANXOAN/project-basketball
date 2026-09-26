@@ -6,6 +6,8 @@ import {
   getBookingDetail,
   getRefundRequests,
   createBooking,
+  extendBooking,
+  rescheduleBooking,
   updateBooking,
   deleteBooking,
   cancelBooking,
@@ -21,6 +23,8 @@ router.get("/refunds", staffRequired, getRefundRequests);
 router.get("/:id/detail", authRequired, getBookingDetail);
 router.get("/:id", authRequired, getBooking);
 router.post("/", authRequired, createBooking);
+router.post("/:id/extend", authRequired, extendBooking);
+router.post("/:id/reschedule", authRequired, rescheduleBooking);
 router.post("/:id/cancel", authRequired, cancelBooking);
 router.post("/:id/refund", adminRequired, completeRefund);
 router.post("/:id/check-in", staffRequired, checkInBooking);

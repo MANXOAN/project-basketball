@@ -45,9 +45,10 @@ router.post('/create-url', authRequired, async function (req, res, next) {
         const tmnCode = process.env.VNP_TMN_CODE;
         const secretKey = process.env.VNP_HASH_SECRET;
         const returnUrl = process.env.VNP_RETURN_URL || "http://localhost:5173/vnpay-return";
+        const isPlaceholder = (value) => /^(?:\.\.\.|your_|replace_with)/i.test(String(value || "").trim());
 
-        if (!tmnCode || !secretKey) {
-            return res.status(500).json({ message: "Thiếu cấu hình VNPay trên Backend" });
+        if (!tmnCode || !secretKey || isPlaceholder(tmnCode) || isPlaceholder(secretKey)) {
+            return res.status(500).json({ message: "Chưa cấu hình mã Merchant và Hash Secret VNPay Sandbox hợp lệ trên Backend" });
         }
 
         const orderId = String(req.body.orderId || "");
@@ -67,18 +68,24 @@ router.post('/create-url', authRequired, async function (req, res, next) {
         if (!staff && !owner) {
             return res.status(403).json({ message: "Bạn không có quyền thanh toán đơn này" });
         }
-        const groupBookings = booking.bookingGroupId
+        const allGroupBookings = booking.bookingGroupId
             ? await Booking.find({ bookingGroupId: booking.bookingGroupId }).sort({ id: 1 })
             : [booking];
-        if (!groupBookings.length || groupBookings.some((item) => item.status === "cancelled")) {
+        if (booking.status === "cancelled") {
             return res.status(400).json({ message: "Đơn hoặc một phần lịch đã hết hạn/hủy" });
+        }
+        const groupBookings = allGroupBookings.filter((item) => item.status !== "cancelled");
+        if (!groupBookings.length) {
+            return res.status(400).json({ message: "Không còn buổi nào trong lịch nhóm cần thanh toán" });
         }
         const groupTotal = groupBookings.reduce((sum, item) => sum + Number(item.total || 0), 0);
         const paymentFilter = booking.bookingGroupId
             ? { bookingGroupId: booking.bookingGroupId, status: "success", paymentKind: { $in: ["deposit", "balance", "full"] } }
             : { bookingId: booking.id, status: "success", paymentKind: { $in: ["deposit", "balance", "full"] } };
         const successfulPayments = await Payment.find(paymentFilter).select("amount");
-        const paidAmount = successfulPayments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        const paidAmount = booking.bookingGroupId
+            ? groupBookings.reduce((sum, item) => sum + Number(item.paidAmount || 0), 0)
+            : successfulPayments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
         const groupPaymentStatus = groupBookings[0].paymentStatus;
         if (groupBookings.some((item) => item.paymentStatus !== groupPaymentStatus)) {
             return res.status(409).json({ message: "Trạng thái thanh toán của nhóm lịch không đồng nhất" });

@@ -28,6 +28,7 @@ const bookingSchema = new mongoose.Schema(
     date: { type: String, required: true, index: true },
     time: { type: String, required: true },
     duration: { type: Number, default: 1 },
+    extensionHours: { type: Number, default: 0, min: 0 },
     total: { type: Number, default: 0 },
     customer: customerSchema,
     services: {

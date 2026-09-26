@@ -46,6 +46,7 @@ Dữ liệu seed chính nằm tại [`Frontend/db.json`](Frontend/db.json). File
   `https://gw.vba.vn/api/vba/blogs`.
   Backend cache kết quả 10 phút; nếu VBA không phản hồi, API trả lỗi rõ ràng thay vì bài viết mẫu.
 - Các trang quản trị lịch và đơn đặt sân cũng không còn fallback sang dữ liệu demo.
+- Đặt lịch dài hạn hỗ trợ lặp hằng ngày hoặc hằng tuần trong khoảng ngày đã chọn; từng buổi vẫn là booking con độc lập để đổi lịch hoặc hủy riêng.
 
 ## Endpoint cần kiểm tra
 

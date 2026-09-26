@@ -3,6 +3,7 @@ import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { api } from "../lib/api";
+import { setAuth } from "../lib/auth";
 
 function Login() {
   const navigate = useNavigate();
@@ -13,10 +14,13 @@ function Login() {
         email: values.email,
         password: values.password,
       });
-      localStorage.setItem("token", res.data.accessToken);
-      localStorage.setItem("user", JSON.stringify(res.data.user));
+      setAuth(res.data.accessToken, res.data.user);
       toast.success("Đăng nhập thành công!");
-      navigate("/");
+      const requestedReturnTo = new URLSearchParams(window.location.search).get("returnTo") || "/";
+      const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+        ? requestedReturnTo
+        : "/";
+      navigate(returnTo, { replace: true });
     } catch (error) {
       toast.error("Sai email hoặc mật khẩu!");
     }

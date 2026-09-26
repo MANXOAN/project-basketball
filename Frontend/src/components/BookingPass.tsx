@@ -11,17 +11,26 @@ type TicketBooking = Booking & {
 type Props = {
   booking: TicketBooking;
   code?: string;
+  sessions?: TicketBooking[];
+  onSessionSelect?: (session: TicketBooking) => void;
 };
 
 function toIcsDate(value: Date) {
   return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
-export default function BookingPass({ booking, code = `BK${String(booking.id).padStart(6, "0")}` }: Props) {
-  const qrContent = `CHECKIN-${code}|${booking.fieldName}|${booking.court}|${booking.date}|${booking.time}`;
+export default function BookingPass({ booking, code, sessions, onSessionSelect }: Props) {
+  const groupSessions = sessions?.length ? sessions : [booking];
+  const isGroupPass = groupSessions.length > 1;
+  const passCode = code || (isGroupPass
+    ? `BG${String(booking.id).padStart(6, "0")}`
+    : `BK${String(booking.id).padStart(6, "0")}`);
+  const qrContent = `CHECKIN-${passCode}|${booking.fieldName}|${booking.court}|${booking.date}|${booking.time}`;
+  const groupTotal = Number(booking.groupTotal || groupSessions.reduce((sum, session) => sum + Number(session.total || 0), 0));
+  const groupPaidAmount = groupSessions.reduce((sum, session) => sum + Number(session.paidAmount || 0), 0);
 
   const copyCode = async () => {
-    await navigator.clipboard.writeText(code);
+    await navigator.clipboard.writeText(passCode);
     toast.success("Đã sao chép mã đặt sân");
   };
 
@@ -30,27 +39,27 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
   };
 
   const addToCalendar = () => {
-    const start = new Date(`${booking.date}T${booking.time}:00`);
-    const end = new Date(start.getTime() + (booking.duration || 1) * 60 * 60 * 1000);
     const ics = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
       "PRODID:-//GoldenState//Booking Pass//VI",
-      "BEGIN:VEVENT",
-      `UID:${code}@goldenstate.vn`,
-      `DTSTAMP:${toIcsDate(new Date())}`,
-      `DTSTART:${toIcsDate(start)}`,
-      `DTEND:${toIcsDate(end)}`,
-      `SUMMARY:Đặt sân ${booking.court} - ${booking.fieldName}`,
-      `LOCATION:${booking.fieldName}`,
-      `DESCRIPTION:Mã đặt sân ${code}. Xuất trình QR khi check-in.`,
-      "END:VEVENT",
+      ...groupSessions.map((session) => [
+        "BEGIN:VEVENT",
+        `UID:BK${session.id}@goldenstate.vn`,
+        `DTSTAMP:${toIcsDate(new Date())}`,
+        `DTSTART:${toIcsDate(new Date(`${session.date}T${session.time}:00`))}`,
+        `DTEND:${toIcsDate(new Date(new Date(`${session.date}T${session.time}:00`).getTime() + (session.duration || 1) * 60 * 60 * 1000))}`,
+        `SUMMARY:Đặt sân ${session.court} - ${session.fieldName}`,
+        `LOCATION:${session.fieldName}`,
+        `DESCRIPTION:Mã đặt sân BK${session.id}. Xuất trình QR khi check-in.`,
+        "END:VEVENT",
+      ].join("\r\n")),
       "END:VCALENDAR",
     ].join("\r\n");
     const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${code}.ics`;
+    link.download = `${passCode}.ics`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -58,7 +67,7 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
   const paymentLabel = booking.paymentStatus === "paid"
     ? "Đã thanh toán"
     : booking.paymentStatus === "deposit_paid"
-      ? "Đã đặt cọc 30%"
+      ? Number(booking.extensionHours) > 0 ? "Đã thanh toán một phần" : "Đã đặt cọc 30%"
       : booking.paymentMethod === "cash"
         ? "Thanh toán tại sân"
         : "Chờ thanh toán";
@@ -79,10 +88,10 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
             <div className="text-[10px] font-black uppercase tracking-[0.28em]">GoldenState Match Pass</div>
             <h3 className="mt-1 text-3xl font-black">Vé check-in điện tử</h3>
           </div>
-          <div className="rounded-xl border border-black/10 bg-black/10 px-3 py-2 text-right">
+            <div className="rounded-xl border border-black/10 bg-black/10 px-3 py-2 text-right">
             <div className="text-[9px] font-bold uppercase tracking-wider">Mã đặt sân</div>
             <button type="button" onClick={copyCode} className="mt-0.5 flex items-center gap-1 font-mono text-sm font-black" aria-label="Sao chép mã đặt sân">
-              {code} <Copy className="h-3.5 w-3.5" />
+              {passCode} <Copy className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -97,7 +106,32 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
             {booking.field?.address && <div className="mt-1 text-xs leading-5 text-gray-500">{[booking.field.address, booking.field.city].filter(Boolean).join(", ")}</div>}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+            {isGroupPass ? (
+              <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="mb-2 text-xs font-bold uppercase tracking-widest text-yellow-400">Lịch thi đấu · {groupSessions.length} buổi</div>
+                <div className="divide-y divide-white/10">
+                  {groupSessions.map((session, index) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => onSessionSelect?.(session)}
+                      disabled={!onSessionSelect}
+                      className="grid w-full grid-cols-[1fr_auto] gap-3 py-2.5 text-left text-xs transition hover:bg-white/[0.04] disabled:cursor-default"
+                    >
+                      <div>
+                        <div className="font-bold text-white">Buổi {index + 1} · {session.court}</div>
+                        <div className="mt-0.5 text-gray-400">{formatDateVi(session.date)} · {formatSlotRange(session.time, session.duration || 1)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-white">{formatCurrency(session.total)}</div>
+                        <div className="mt-0.5 text-yellow-300">Mở vé · BK{String(session.id).padStart(6, "0")}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
               <CalendarDays className="mb-2 h-4 w-4 text-yellow-400" />
               <div className="text-xs text-gray-500">Ngày thi đấu</div>
@@ -107,8 +141,14 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
               <Clock3 className="mb-2 h-4 w-4 text-yellow-400" />
               <div className="text-xs text-gray-500">Khung giờ</div>
               <div className="mt-0.5 text-sm font-bold text-white">{formatSlotRange(booking.time, booking.duration || 1)}</div>
+              {Number(booking.extensionHours) > 0 && (
+                <div className="mt-1 text-xs font-bold text-yellow-300">
+                  Thuê thêm: {formatSlotRange(booking.time, Math.max(0, (booking.duration || 1) - Number(booking.extensionHours))).split(" – ")[1]} – {formatSlotRange(booking.time, booking.duration || 1).split(" – ")[1]}
+                </div>
+              )}
             </div>
-          </div>
+              </div>
+            )}
 
           <div className="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:grid-cols-2">
             <div className="flex items-start gap-2">
@@ -125,6 +165,12 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
                 <div className="text-xs text-gray-500">Thanh toán</div>
                 <div className="mt-0.5 text-sm font-bold text-white">{paymentLabel}</div>
                 <div className="mt-0.5 text-xs text-gray-400">{booking.paymentMethod === "cash" ? "Tiền mặt" : "Thanh toán điện tử"}</div>
+                {isGroupPass && booking.paymentStatus === "deposit_paid" && (
+                  <div className="mt-1 text-xs text-gray-300">Đã cọc {formatCurrency(groupPaidAmount)} · còn {formatCurrency(Math.max(0, groupTotal - groupPaidAmount))}</div>
+                )}
+                {!isGroupPass && Number(booking.extensionHours) > 0 && booking.paymentStatus === "deposit_paid" && (
+                  <div className="mt-1 text-xs text-gray-300">Đã thanh toán {formatCurrency(groupPaidAmount)} · còn {formatCurrency(Math.max(0, Number(booking.total) - groupPaidAmount))}</div>
+                )}
               </div>
             </div>
           </div>
@@ -138,9 +184,9 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
 
           <div className="flex items-end justify-between gap-4 border-t border-dashed border-white/10 pt-4">
             <div>
-              <div className="text-xs text-gray-500">{booking.groupSize && booking.groupSize > 1 ? "Giá trị buổi / Tổng nhóm" : "Tổng giá trị"}</div>
-              <div className="text-xl font-black text-yellow-400">{formatCurrency(booking.total)}</div>
-              {booking.groupSize && booking.groupSize > 1 && <div className="mt-0.5 text-xs font-bold text-gray-400">{formatCurrency(booking.groupTotal || booking.total)} · {booking.groupSize} buổi</div>}
+              <div className="text-xs text-gray-500">{isGroupPass ? "Tổng giá trị booking" : booking.groupSize && booking.groupSize > 1 ? "Giá trị buổi / Tổng nhóm" : "Tổng giá trị"}</div>
+              <div className="text-xl font-black text-yellow-400">{formatCurrency(isGroupPass ? groupTotal : booking.total)}</div>
+              {!isGroupPass && booking.groupSize && booking.groupSize > 1 && <div className="mt-0.5 text-xs font-bold text-gray-400">{formatCurrency(booking.groupTotal || booking.total)} · {booking.groupSize} buổi</div>}
             </div>
             <div className={"inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold " + ticketState.className}>
               <ShieldCheck className="h-3.5 w-3.5" /> {ticketState.label}
@@ -148,11 +194,13 @@ export default function BookingPass({ booking, code = `BK${String(booking.id).pa
           </div>
         </div>
 
-        <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-3 text-center sm:w-44">
-          <QRCode type="svg" value={qrContent} size={144} bordered={false} aria-label={"Mã QR check-in cho đơn " + code} />
-          <div className="mt-1 text-[10px] font-black uppercase tracking-widest text-zinc-700">Quét để check-in</div>
-          <div className="mt-1 max-w-36 break-all font-mono text-[9px] leading-3 text-zinc-500">{qrContent}</div>
-        </div>
+        {!isGroupPass && (
+          <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-3 text-center sm:w-44">
+            <QRCode type="svg" value={qrContent} size={144} bordered={false} aria-label={"Mã QR check-in cho đơn " + passCode} />
+            <div className="mt-1 text-[10px] font-black uppercase tracking-widest text-zinc-700">Quét để check-in</div>
+            <div className="mt-1 max-w-36 break-all font-mono text-[9px] leading-3 text-zinc-500">{qrContent}</div>
+          </div>
+        )}
       </div>
 
       <div className="booking-pass-actions grid grid-cols-1 gap-3 border-t border-white/10 bg-white/[0.02] p-4 sm:grid-cols-2">

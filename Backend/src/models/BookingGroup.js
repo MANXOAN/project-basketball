@@ -9,7 +9,7 @@ const bookingGroupSchema = new mongoose.Schema(
     total: { type: Number, required: true, min: 0 },
     paidAmount: { type: Number, default: 0, min: 0 },
     paymentStatus: { type: String, enum: ["unpaid", "deposit_paid", "paid", "refunded"], default: "unpaid" },
-    status: { type: String, enum: ["pending", "confirmed", "cancelled", "completed"], default: "pending" },
+    status: { type: String, enum: ["pending", "confirmed", "partially_cancelled", "cancelled", "completed"], default: "pending" },
     paymentExpiresAt: { type: Date, default: null },
     userId: { type: Number, default: null, index: true },
     voucherCode: { type: String, default: "" },

@@ -95,23 +95,53 @@ function splitAmount(amount, count, index) {
   return base + (index < whole % count ? 1 : 0);
 }
 
+function allocateAmountByWeights(amount, weights) {
+  const whole = Math.max(0, Math.round(Number(amount) || 0));
+  const weightTotal = weights.reduce((sum, weight) => sum + Math.max(0, Number(weight) || 0), 0);
+  if (!weights.length) return [];
+  if (!weightTotal) return weights.map((_weight, index) => splitAmount(whole, weights.length, index));
+
+  const exactShares = weights.map((weight) => whole * Math.max(0, Number(weight) || 0) / weightTotal);
+  const shares = exactShares.map(Math.floor);
+  let remainder = whole - shares.reduce((sum, share) => sum + share, 0);
+  const remainderOrder = exactShares
+    .map((share, index) => ({ index, remainder: share - shares[index] }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (let index = 0; remainder > 0; index += 1, remainder -= 1) {
+    shares[remainderOrder[index % remainderOrder.length].index] += 1;
+  }
+  return shares;
+}
+
 async function applyGroupPayment(booking, payment) {
   if (!payment.bookingGroupId) return null;
   const expectedStatus = payment.paymentKind === "balance" ? "deposit_paid" : "unpaid";
   const group = await BookingGroup.findOne({ id: payment.bookingGroupId });
   if (!group) return null;
 
+  const allMembers = await Booking.find({ bookingGroupId: group.id }).sort({ id: 1 });
+  const members = allMembers.filter((member) => member.status !== "cancelled");
+  if (!members.length) return { claimed: false, booking };
+  const activeTotal = members.reduce((sum, member) => sum + Number(member.total || 0), 0);
+  const currentPaidAmount = members.reduce((sum, member) => sum + Number(member.paidAmount || 0), 0);
+  const expectedAmount = payment.paymentKind === "balance"
+    ? Math.max(0, activeTotal - currentPaidAmount)
+    : payment.paymentKind === "deposit"
+      ? Math.round(activeTotal * 0.3)
+      : activeTotal;
+  if (Number(payment.amount) !== expectedAmount) return { claimed: false, booking };
+
   const nextPaymentStatus = payment.paymentKind === "deposit" ? "deposit_paid" : "paid";
   const nextPaidAmount = nextPaymentStatus === "paid"
-    ? Number(group.total)
-    : Math.min(Number(group.total), Number(payment.amount));
+    ? activeTotal
+    : Math.min(activeTotal, Number(payment.amount));
   const claimedGroup = await BookingGroup.findOneAndUpdate(
     { id: group.id, status: { $ne: "cancelled" }, paymentStatus: expectedStatus },
     {
       $set: {
         paymentStatus: nextPaymentStatus,
         paidAmount: nextPaidAmount,
-        status: "confirmed",
+        status: allMembers.some((member) => member.status === "cancelled") ? "partially_cancelled" : "confirmed",
         paymentExpiresAt: null,
       },
     },
@@ -119,11 +149,13 @@ async function applyGroupPayment(booking, payment) {
   );
   if (!claimedGroup) return { claimed: false, booking };
 
-  const members = await Booking.find({ bookingGroupId: group.id }).sort({ id: 1 });
+  const depositShares = nextPaymentStatus === "paid"
+    ? []
+    : allocateAmountByWeights(payment.amount, members.map((member) => member.total));
   for (const [index, member] of members.entries()) {
     const memberPaidAmount = nextPaymentStatus === "paid"
       ? Number(member.total)
-      : Math.min(Number(member.total), splitAmount(payment.amount, members.length, index));
+      : Math.min(Number(member.total), depositShares[index]);
     await Booking.updateOne(
       { id: member.id, status: { $ne: "cancelled" } },
       {
@@ -136,11 +168,26 @@ async function applyGroupPayment(booking, payment) {
       }
     );
   }
-  const updatedPrimary = await Booking.findOne({ id: group.primaryBookingId });
+  const activePrimary = members.find((member) => member.id === group.primaryBookingId) || members[0];
+  const updatedPrimary = await Booking.findOne({ id: activePrimary.id });
   const emailBooking = updatedPrimary
     ? {
       ...updatedPrimary.toObject(),
-      schedule: members.map((member) => ({ date: member.date, time: member.time })),
+      groupTotal: activeTotal,
+      groupSize: members.length,
+      groupPaidAmount: nextPaidAmount,
+      paidAmount: nextPaidAmount,
+      paymentStatus: nextPaymentStatus,
+      schedule: members.map((member) => ({
+        id: member.id,
+        fieldName: member.fieldName,
+        court: member.court,
+        date: member.date,
+        time: member.time,
+        duration: member.duration,
+        total: member.total,
+        status: member.status,
+      })),
     }
     : booking;
   return { claimed: true, booking: emailBooking };

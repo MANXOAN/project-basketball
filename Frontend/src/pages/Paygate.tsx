@@ -62,13 +62,33 @@ export default function Paygate() {
 
   const isBalancePayment = Boolean(balanceBooking);
   const booking = balanceBooking || existingBooking || payload;
-  const bookingTotal = Number(booking.groupTotal || booking.total || total || 0);
+  const isGroupedBooking = Boolean(booking.bookingGroupId && Number(booking.groupSize) > 1);
+  const groupSchedule: Array<{ date: string; time: string; duration?: number }> = Array.isArray(booking.schedule)
+    ? booking.schedule
+    : [];
+  const requestedSessionCount = Array.isArray(payload?.scheduleOccurrences)
+    ? payload.scheduleOccurrences.length
+    : 1;
+  const savedSessionCount = Number(booking.groupSize || groupSchedule.length || 1);
+  const scheduleCountMismatch = requestedSessionCount > 1 && requestedSessionCount !== savedSessionCount;
+  const persistedGroupTotal = Number(booking.groupTotal || 0);
+  const bookingTotal = persistedGroupTotal > 0
+    ? persistedGroupTotal
+    : Number(total ?? booking.total ?? 0);
+  const requestedTotal = Number(payload?.total ?? total ?? 0);
+  const totalMismatch = requestedTotal > 0 && Math.round(requestedTotal) !== Math.round(bookingTotal);
+  const bookingDataMismatch = scheduleCountMismatch || totalMismatch;
+  const groupPaidAmount = Number(booking.groupPaidAmount ?? booking.paidAmount ?? (booking.paymentStatus === "deposit_paid" ? Math.round(bookingTotal * 0.3) : 0));
   const amountToPay = isBalancePayment
-    ? Math.max(0, bookingTotal - Number(booking.paymentStatus === "deposit_paid" ? Math.round(bookingTotal * 0.3) : booking.paidAmount || 0))
+    ? Math.max(0, bookingTotal - groupPaidAmount)
     : booking.paymentMethod === "deposit" ? Math.round(bookingTotal * 0.3) : bookingTotal;
   const paymentKind = isBalancePayment ? "balance" : booking.paymentMethod === "deposit" ? "deposit" : "full";
 
   const handleConfirmPayment = async () => {
+    if (bookingDataMismatch) {
+      toast.error("Tổng tiền hoặc số buổi của booking không khớp. Chưa thể thanh toán.");
+      return;
+    }
     if (!tab) {
       toast.error("Vui lòng chọn VNPay hoặc VietQR để tiếp tục");
       return;
@@ -190,15 +210,47 @@ export default function Paygate() {
             <p className="text-gray-400 text-sm">
               Sân đấu: <span className="text-white font-bold">{booking.fieldName} - {booking.court}</span>
             </p>
+            {isGroupedBooking && (
+              <div className="mt-4 rounded-2xl border border-amber-500/20 bg-black/45 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Thanh toán gộp · cả lịch dài hạn</span>
+                  <span className="rounded-full bg-amber-400 px-2.5 py-1 text-xs font-black text-slate-950">{booking.groupSize} buổi</span>
+                </div>
+                {groupSchedule.length > 0 && (
+                  <div className="mt-3 max-h-36 space-y-1.5 overflow-y-auto pr-1 text-xs text-gray-300">
+                    {groupSchedule.map((session, index) => (
+                      <div key={`${session.date}|${session.time}|${index}`} className="flex justify-between gap-3 rounded-lg bg-white/[0.04] px-3 py-2">
+                        <span>Buổi {index + 1} · {session.date} · {session.time}</span>
+                        <span className="shrink-0 text-gray-400">{session.duration || booking.duration || 1}h</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-3 text-xs leading-5 text-gray-400">Một giao dịch này thanh toán cho toàn bộ các buổi đang hiển thị, không thu riêng từng booking con.</p>
+              </div>
+            )}
 
-            <div className="mt-6 bg-black/60 border border-white/10 p-4 rounded-2xl inline-flex flex-col items-center">
-              <span className="text-xs uppercase font-bold text-gray-400 tracking-wider mb-1">
-                {isBalancePayment ? "Thanh toán phần còn lại (70%)" : booking.paymentMethod === "deposit" ? "Số tiền cọc giữ chỗ (30%)" : "Tổng tiền thanh toán 100%"}
-              </span>
-              <span className="text-3xl font-black text-yellow-400">
-                {formatCurrency(amountToPay)}
-              </span>
-            </div>
+            {bookingDataMismatch ? (
+              <div role="alert" className="mt-6 rounded-2xl border border-red-500/30 bg-red-950/40 p-4 text-center">
+                <p className="font-bold text-red-200">Thông tin booking chưa khớp</p>
+                <p className="mt-1 text-sm text-red-100/80">
+                  Form có {requestedSessionCount} buổi, tổng {formatCurrency(requestedTotal)}; hệ thống lưu {savedSessionCount} buổi, tổng {formatCurrency(bookingTotal)}. Hãy quay lại tạo booking để không thanh toán thiếu.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 bg-black/60 border border-white/10 p-4 rounded-2xl inline-flex flex-col items-center">
+                <span className="text-xs uppercase font-bold text-gray-400 tracking-wider mb-1">
+                  {isBalancePayment
+                    ? isGroupedBooking ? "Phần còn lại của cả lịch" : "Thanh toán phần còn lại (70%)"
+                    : isGroupedBooking
+                      ? booking.paymentMethod === "deposit" ? `Cọc 30% cho cả lịch · ${booking.groupSize} buổi` : `Thanh toán 100% cả lịch · ${booking.groupSize} buổi`
+                      : booking.paymentMethod === "deposit" ? "Số tiền cọc giữ chỗ (30%)" : "Tổng tiền thanh toán 100%"}
+                </span>
+                <span className="text-3xl font-black text-yellow-400">
+                  {formatCurrency(amountToPay)}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="p-6 md:p-8">
@@ -308,7 +360,7 @@ export default function Paygate() {
                     <button
                       type="button"
                       onClick={handleConfirmPayment}
-                      disabled={loading}
+                      disabled={loading || bookingDataMismatch}
                       className="btn-outline mt-4 min-h-11 rounded-xl px-5 text-xs font-bold disabled:opacity-50"
                     >
                       {loading ? "Đang tạo đơn demo..." : "Xác nhận giao dịch demo"}
@@ -322,7 +374,7 @@ export default function Paygate() {
             {tab === "card" ? (
               <button
                 onClick={handleConfirmPayment}
-                disabled={loading}
+                disabled={loading || bookingDataMismatch}
                 className="btn-primary w-full py-4 rounded-xl font-extrabold flex items-center justify-center gap-2 text-base shadow-xl disabled:opacity-50"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}

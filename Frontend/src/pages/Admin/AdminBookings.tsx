@@ -207,6 +207,15 @@ export default function AdminBookings() {
     }
   };
 
+  const paidAmountByGroup = new Map<string, number>();
+  bookings.forEach((booking) => {
+    if (!booking.bookingGroupId) return;
+    paidAmountByGroup.set(
+      booking.bookingGroupId,
+      (paidAmountByGroup.get(booking.bookingGroupId) || 0) + Number(booking.paidAmount || 0)
+    );
+  });
+
   const columns = [
     {
       title: "Mã đơn",
@@ -257,17 +266,27 @@ export default function AdminBookings() {
     {
       title: "Thanh toán",
       key: "pay",
-      render: (_: unknown, r: Booking) => (
-        <div className="flex flex-col gap-1 items-start min-w-[140px]">
-          <div className="text-[11px] font-medium text-gray-500 flex items-center mb-1 bg-gray-50 px-2 py-0.5 rounded">
-            {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
-            {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
+      render: (_: unknown, r: Booking) => {
+        const isGroupedBooking = Boolean(r.bookingGroupId && Number(r.groupSize) > 1);
+        const groupPaidAmount = r.bookingGroupId ? paidAmountByGroup.get(r.bookingGroupId) || 0 : 0;
+        return (
+          <div className="flex flex-col gap-1 items-start min-w-[140px]">
+            <div className="text-[11px] font-medium text-gray-500 flex items-center mb-1 bg-gray-50 px-2 py-0.5 rounded">
+              {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
+              {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
+            </div>
+            <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : ["refunded", "partially_refunded"].includes(r.paymentStatus) ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+              {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : r.paymentStatus === "partially_refunded" ? "Đã hoàn 50%" : "Chưa thanh toán"}
+            </span>
+            {r.paymentStatus === "deposit_paid" && Number(r.paidAmount) > 0 && (
+              <div className="text-[11px] leading-4 text-gray-600">
+                {isGroupedBooking && <div>Cả lịch ({r.groupSize} buổi): <strong>{formatCurrency(groupPaidAmount)}</strong></div>}
+                <div>Buổi này: {formatCurrency(Number(r.paidAmount || 0))}</div>
+              </div>
+            )}
           </div>
-          <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : ["refunded", "partially_refunded"].includes(r.paymentStatus) ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
-            {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : r.paymentStatus === "partially_refunded" ? "Đã hoàn 50%" : "Chưa thanh toán"}
-          </span>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: "Hoàn tiền",
@@ -595,6 +614,7 @@ export default function AdminBookings() {
                           <div className="mt-1"><span className="font-semibold">Mã giao dịch:</span> <strong className="font-mono">{payment.transactionCode || "Chưa có"}</strong></div>
                           <div className="mt-1"><span className="font-semibold">Mã thanh toán:</span> <strong className="font-mono">{payment.paymentCode}</strong></div>
                           <div className="mt-1"><span className="font-semibold">Số tiền gốc:</span> {formatCurrency(payment.amount)}</div>
+                          {payment.bookingGroupId && <div className="mt-2 border-t border-amber-200 pt-2 text-xs leading-5 text-amber-800">Đây là giao dịch gốc cho toàn bộ lịch nhóm; số tiền cần hoàn ở trên chỉ thuộc booking con này.</div>}
                         </div>
                       ))}
                     </div>

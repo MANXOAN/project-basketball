@@ -3,21 +3,42 @@ function isDate(value) {
     !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
 }
 
-function weeklyDates(startDate, endDate) {
+function datesInRange(startDate, endDate, frequency) {
   if (!isDate(startDate) || !isDate(endDate) || endDate < startDate) return [];
   const dates = [];
   const current = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
+  const stepDays = frequency === "daily" ? 1 : 7;
   while (current <= end) {
     dates.push(current.toISOString().slice(0, 10));
-    current.setUTCDate(current.getUTCDate() + 7);
+    current.setUTCDate(current.getUTCDate() + stepDays);
   }
   return dates;
 }
 
-export function expandBookingSchedule({ date, recurringDates, time, scheduleSegments }) {
+export function expandBookingSchedule({ date, recurringDates, time, scheduleSegments, scheduleOccurrences }) {
   const occurrences = [];
-  if (Array.isArray(scheduleSegments) && scheduleSegments.length) {
+  if (Array.isArray(scheduleOccurrences) && scheduleOccurrences.length) {
+    if (scheduleOccurrences.length > 60) {
+      throw new Error("Số buổi đặt phải từ 1 đến 60");
+    }
+    const seen = new Set();
+    scheduleOccurrences.forEach((occurrence, index) => {
+      const occurrenceDate = String(occurrence?.date || "");
+      const occurrenceTime = String(occurrence?.time || "");
+      const occurrenceDuration = occurrence?.duration == null ? undefined : Number(occurrence.duration);
+      if (!isDate(occurrenceDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(occurrenceTime)) {
+        throw new Error(`Buổi ${index + 1} không có ngày hoặc giờ hợp lệ`);
+      }
+      if (occurrenceDuration !== undefined && (!Number.isFinite(occurrenceDuration) || occurrenceDuration <= 0 || occurrenceDuration > 8)) {
+        throw new Error(`Thời lượng buổi ${index + 1} không hợp lệ`);
+      }
+      const key = `${occurrenceDate}|${occurrenceTime}`;
+      if (seen.has(key)) throw new Error(`Lịch có buổi bị trùng: ${occurrenceDate} ${occurrenceTime}`);
+      seen.add(key);
+      occurrences.push({ date: occurrenceDate, time: occurrenceTime, duration: occurrenceDuration, segmentIndex: index });
+    });
+  } else if (Array.isArray(scheduleSegments) && scheduleSegments.length) {
     if (scheduleSegments.length > 12) {
       throw new Error("Tối đa 12 giai đoạn đặt lịch");
     }
@@ -25,10 +46,14 @@ export function expandBookingSchedule({ date, recurringDates, time, scheduleSegm
       const startDate = String(segment?.startDate || "");
       const endDate = String(segment?.endDate || startDate);
       const segmentTime = String(segment?.time || "");
+      const frequency = String(segment?.frequency || "weekly");
       if (!isDate(startDate) || !isDate(endDate) || endDate < startDate || !/^([01]\d|2[0-3]):[0-5]\d$/.test(segmentTime)) {
         throw new Error(`Giai đoạn ${segmentIndex + 1} không hợp lệ`);
       }
-      weeklyDates(startDate, endDate).forEach((occurrenceDate) => {
+      if (!["daily", "weekly"].includes(frequency)) {
+        throw new Error(`Tần suất giai đoạn ${segmentIndex + 1} không hợp lệ`);
+      }
+      datesInRange(startDate, endDate, frequency).forEach((occurrenceDate) => {
         occurrences.push({ date: occurrenceDate, time: segmentTime, segmentIndex });
       });
     });
