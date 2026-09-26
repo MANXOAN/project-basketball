@@ -67,7 +67,7 @@ export default function BookingPass({ booking, code, sessions, onSessionSelect }
   const paymentLabel = booking.paymentStatus === "paid"
     ? "Đã thanh toán"
     : booking.paymentStatus === "deposit_paid"
-      ? Number(booking.extensionHours) > 0 ? "Đã thanh toán một phần" : "Đã đặt cọc 30%"
+      ? "Đã đặt cọc 30%"
       : booking.paymentMethod === "cash"
         ? "Thanh toán tại sân"
         : "Chờ thanh toán";
@@ -141,11 +141,6 @@ export default function BookingPass({ booking, code, sessions, onSessionSelect }
               <Clock3 className="mb-2 h-4 w-4 text-yellow-400" />
               <div className="text-xs text-gray-500">Khung giờ</div>
               <div className="mt-0.5 text-sm font-bold text-white">{formatSlotRange(booking.time, booking.duration || 1)}</div>
-              {Number(booking.extensionHours) > 0 && (
-                <div className="mt-1 text-xs font-bold text-yellow-300">
-                  Thuê thêm: {formatSlotRange(booking.time, Math.max(0, (booking.duration || 1) - Number(booking.extensionHours))).split(" – ")[1]} – {formatSlotRange(booking.time, booking.duration || 1).split(" – ")[1]}
-                </div>
-              )}
             </div>
               </div>
             )}
@@ -167,9 +162,6 @@ export default function BookingPass({ booking, code, sessions, onSessionSelect }
                 <div className="mt-0.5 text-xs text-gray-400">{booking.paymentMethod === "cash" ? "Tiền mặt" : "Thanh toán điện tử"}</div>
                 {isGroupPass && booking.paymentStatus === "deposit_paid" && (
                   <div className="mt-1 text-xs text-gray-300">Đã cọc {formatCurrency(groupPaidAmount)} · còn {formatCurrency(Math.max(0, groupTotal - groupPaidAmount))}</div>
-                )}
-                {!isGroupPass && Number(booking.extensionHours) > 0 && booking.paymentStatus === "deposit_paid" && (
-                  <div className="mt-1 text-xs text-gray-300">Đã thanh toán {formatCurrency(groupPaidAmount)} · còn {formatCurrency(Math.max(0, Number(booking.total) - groupPaidAmount))}</div>
                 )}
               </div>
             </div>

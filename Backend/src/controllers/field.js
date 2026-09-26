@@ -5,14 +5,18 @@ import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 
 const basketballSportValues = ["basketball", "Bóng rổ", "Bóng Rổ", "Sân Bóng Rổ"];
-const activeBookingStatuses = ["pending", "confirmed", "completed"];
+const activeBookingStatuses = ["pending", "confirmed"];
 
 function exactName(value) {
   return { $regex: new RegExp(`^${String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") };
 }
 
 function basketballFieldPayload(body) {
-  return { ...body, sport: "basketball", sportLabel: "Bóng rổ" };
+  const allowed = ["name", "address", "city", "phone", "openTime", "closeTime", "description", "image", "priceFrom", "rating", "status", "lat", "lng"];
+  const data = Object.fromEntries(Object.entries(body || {}).filter(([key]) => allowed.includes(key)));
+  if (Object.prototype.hasOwnProperty.call(data, "priceFrom")) data.priceFrom = Number(data.priceFrom);
+  if (Object.prototype.hasOwnProperty.call(data, "rating")) data.rating = Number(data.rating);
+  return { ...data, sport: "basketball", sportLabel: "Bóng rổ" };
 }
 
 export async function getFields(req, res) {
@@ -42,6 +46,9 @@ export async function getField(req, res) {
 export async function createField(req, res) {
   try {
     const { name } = req.body;
+    if (!String(name || "").trim()) return res.status(400).json({ message: "Tên cơ sở không được để trống" });
+    if (req.body.status && !["active", "inactive"].includes(req.body.status)) return res.status(400).json({ message: "Trạng thái cơ sở không hợp lệ" });
+    if (req.body.priceFrom != null && (!Number.isFinite(Number(req.body.priceFrom)) || Number(req.body.priceFrom) < 0)) return res.status(400).json({ message: "Giá cơ sở không hợp lệ" });
     if (name) {
       const existing = await Field.findOne({
         name: exactName(name)
@@ -61,6 +68,8 @@ export async function createField(req, res) {
 export async function updateField(req, res) {
   try {
     const id = Number(req.params.id);
+    if (req.body.status && !["active", "inactive"].includes(req.body.status)) return res.status(400).json({ message: "Trạng thái cơ sở không hợp lệ" });
+    if (req.body.priceFrom != null && (!Number.isFinite(Number(req.body.priceFrom)) || Number(req.body.priceFrom) < 0)) return res.status(400).json({ message: "Giá cơ sở không hợp lệ" });
     if (req.body.name) {
       const existing = await Field.findOne({
         name: exactName(req.body.name),

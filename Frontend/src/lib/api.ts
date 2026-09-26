@@ -86,6 +86,8 @@ export type Court = {
   price: number;
   status: string;
   capacity: number;
+  description?: string;
+  imageUrl?: string;
 };
 
 export type NewsItem = {
@@ -130,7 +132,6 @@ export type Booking = {
   date: string;
   time: string;
   duration: number;
-  extensionHours?: number;
   total: number;
   customer: {
     fullName: string;
@@ -144,6 +145,7 @@ export type Booking = {
   discount?: number;
   paymentMethod: string;
   paymentStatus: string;
+  pendingAdjustmentId?: string;
   paidAmount?: number;
   paymentExpiresAt?: string | null;
   refundAmount?: number;
@@ -171,6 +173,7 @@ export type Booking = {
   cancelledByRole?: string;
   status: string;
   createdAt: string;
+  cancelledAt?: string | null;
 };
 
 /** Check if two time ranges overlap (time as HH:mm, duration in hours) */

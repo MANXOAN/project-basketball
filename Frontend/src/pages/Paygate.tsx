@@ -66,8 +66,8 @@ export default function Paygate() {
   const groupSchedule: Array<{ date: string; time: string; duration?: number }> = Array.isArray(booking.schedule)
     ? booking.schedule
     : [];
-  const requestedSessionCount = Array.isArray(payload?.scheduleOccurrences)
-    ? payload.scheduleOccurrences.length
+  const requestedSessionCount = Array.isArray(payload?.occurrences)
+    ? payload.occurrences.length
     : 1;
   const savedSessionCount = Number(booking.groupSize || groupSchedule.length || 1);
   const scheduleCountMismatch = requestedSessionCount > 1 && requestedSessionCount !== savedSessionCount;
@@ -83,6 +83,15 @@ export default function Paygate() {
     ? Math.max(0, bookingTotal - groupPaidAmount)
     : booking.paymentMethod === "deposit" ? Math.round(bookingTotal * 0.3) : bookingTotal;
   const paymentKind = isBalancePayment ? "balance" : booking.paymentMethod === "deposit" ? "deposit" : "full";
+  const paymentSchedule = Array.isArray(booking.schedule)
+    ? booking.schedule
+    : Array.isArray(booking.groupSchedule)
+      ? booking.groupSchedule
+      : Array.isArray(payload?.occurrences)
+      ? payload.occurrences
+      : booking.date && booking.time
+        ? [{ date: booking.date, time: booking.time }]
+        : [];
 
   const handleConfirmPayment = async () => {
     if (bookingDataMismatch) {
@@ -254,6 +263,22 @@ export default function Paygate() {
           </div>
 
           <div className="p-6 md:p-8">
+            {paymentSchedule.length > 0 && (
+              <section className="mb-6 rounded-2xl border border-white/10 bg-black/40 p-4" aria-label="Lịch sân trong đơn thanh toán">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-extrabold text-white">Lịch sân sẽ thanh toán</h3>
+                  <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-400">{paymentSchedule.length} buổi</span>
+                </div>
+                <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+                  {paymentSchedule.map((session: { date: string; time: string }, index: number) => (
+                    <div key={session.date + "|" + session.time} className="flex items-center justify-between rounded-xl border border-white/5 bg-zinc-900 px-3 py-2.5 text-sm">
+                      <span className="font-semibold text-gray-400">Buổi {index + 1}</span>
+                      <span className="font-bold text-white">{session.date.split("-").reverse().join("/")} · {session.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
             {/* Tabs */}
             <div className="flex bg-black p-1.5 rounded-2xl border border-white/5 mb-8">
               <button

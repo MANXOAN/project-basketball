@@ -6,8 +6,6 @@ import {
   getBookingDetail,
   getRefundRequests,
   createBooking,
-  extendBooking,
-  rescheduleBooking,
   updateBooking,
   deleteBooking,
   cancelBooking,
@@ -15,16 +13,16 @@ import {
   checkInBooking,
 } from "../controllers/booking";
 import { adminRequired, authRequired, staffRequired } from "../middleware/auth";
+import { checkBookingAvailability } from "../controllers/bookingAvailability";
 
 const router = Router();
 router.get("/", authRequired, getBookings);
 router.get("/availability", getBookingAvailability);
+router.post("/check-availability", authRequired, checkBookingAvailability);
 router.get("/refunds", staffRequired, getRefundRequests);
 router.get("/:id/detail", authRequired, getBookingDetail);
 router.get("/:id", authRequired, getBooking);
 router.post("/", authRequired, createBooking);
-router.post("/:id/extend", authRequired, extendBooking);
-router.post("/:id/reschedule", authRequired, rescheduleBooking);
 router.post("/:id/cancel", authRequired, cancelBooking);
 router.post("/:id/refund", adminRequired, completeRefund);
 router.post("/:id/check-in", staffRequired, checkInBooking);

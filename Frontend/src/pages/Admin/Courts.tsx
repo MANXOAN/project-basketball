@@ -1,9 +1,11 @@
 import { Table, Button, Space, Popconfirm, message, Modal, Form, Input, InputNumber, Select, Spin, Tag } from "antd";
 import { CopyPlus, Edit, Trash2, MapPin, Activity, CheckCircle2, Layers3, Wrench } from "lucide-react";
 import { useState, useEffect } from "react";
+import type { ThHTMLAttributes } from "react";
 import { api, type Court as ApiCourt, type Field, formatCurrency } from "../../lib/api";
 
 type Court = ApiCourt;
+type CourtFormValues = Pick<Court, "name" | "fieldId" | "type" | "price" | "status" | "capacity"> & Partial<Pick<Court, "description" | "imageUrl">>;
 
 export default function Courts() {
     const [data, setData] = useState<Court[]>([]);
@@ -17,7 +19,7 @@ export default function Courts() {
         try {
             const res2 = await api.get<Court[]>("/courts");
             setData(res2.data);
-        } catch (error) {
+        } catch {
             message.error("Không thể tải dữ liệu sân.");
         } finally {
             setLoading(false);
@@ -35,7 +37,7 @@ export default function Courts() {
             await fetchCourts();
             setData(data.filter(item => item.id !== id));
             message.success("Xoá sân thành công");
-        } catch (error) {
+        } catch {
             message.error("Xoá sân thất bại");
         }
     };
@@ -52,7 +54,7 @@ export default function Courts() {
         setIsModalOpen(true);
     };
 
-    const handleSubmitForm = async (values: any) => {
+    const handleSubmitForm = async (values: CourtFormValues) => {
         try {
             const isDuplicate = data.some(
                 (c) =>
@@ -84,7 +86,7 @@ export default function Courts() {
                 message.success("Thêm sân mới thành công!");
             }
             setIsModalOpen(false);
-        } catch (error) {
+        } catch {
             message.error("Lưu thông tin thất bại!");
         }
     };
@@ -124,7 +126,7 @@ export default function Courts() {
             title: "Hành động",
             key: "action",
             align: 'right' as const,
-            render: (_: any, record: Court) => (
+            render: (_: unknown, record: Court) => (
                 <Space size="small">
                     <Button type="text" size="middle" className="text-blue-600 hover:bg-blue-50 font-medium rounded-xl flex items-center justify-center p-2" onClick={() => handleOpenModal(record)}>
                         <Edit size={18} />
@@ -176,7 +178,7 @@ export default function Courts() {
                     rowKey="id"
                     pagination={{ pageSize: 10, className: "mt-6" }}
                     components={{
-                        header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold !border-b-white/10 py-4 uppercase text-xs tracking-wider" /> }
+                        header: { cell: (props: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold !border-b-white/10 py-4 uppercase text-xs tracking-wider" /> }
                     }}
                 />
             </div>
@@ -218,6 +220,13 @@ export default function Courts() {
 
                     <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Sức chứa</span>} name="capacity" rules={[{ required: true, message: "Nhập sức chứa" }]}>
                         <InputNumber size="large" min={1} className="w-full rounded-xl" />
+                    </Form.Item>
+
+                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Mô tả</span>} name="description">
+                        <Input.TextArea rows={3} placeholder="Mô tả mặt sân, ánh sáng, tiện ích..." />
+                    </Form.Item>
+                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Ảnh sân (URL)</span>} name="imageUrl">
+                        <Input placeholder="https://..." />
                     </Form.Item>
 
                     <div className="flex gap-3 mt-8">

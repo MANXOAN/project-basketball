@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, CalendarDays, Clock, MapPin, CheckCircle, XCircle, AlertCircle, RefreshCw, QrCode, FileText, Phone, Navigation, Printer } from "lucide-react";
-import { api, Booking, Field, formatCurrency, formatSlotRange, getBookingsByDate, invalidateApiCache, isSlotConflict } from "../lib/api";
+import { Loader2, CalendarDays, Clock, MapPin, CheckCircle, XCircle, AlertCircle, RefreshCw, QrCode, FileText, Phone, Navigation, Pencil, History } from "lucide-react";
+import { api, Booking, formatCurrency, type Court, type Field } from "../lib/api";
 import { getUser } from "../lib/auth";
-import { isPastVietnamSlot, vietnamTodayIso } from "../lib/bookingTime";
 import toast from "react-hot-toast";
 import BookingPass from "../components/BookingPass";
+import BookingRescheduleModal from "../components/BookingRescheduleModal";
 
 const statusConfig: Record<string, { label: string; className: string; icon: React.ReactNode; dot: string }> = {
   pending: {
@@ -33,6 +33,8 @@ const statusConfig: Record<string, { label: string; className: string; icon: Rea
     dot: "bg-yellow-400",
   },
 };
+
+const historyLabels: Record<BookingHistoryEntry["changeType"], string> = { create: "Tạo buổi", update: "Cập nhật", cancel: "Hủy buổi", reschedule: "Đổi lịch", refund: "Hoàn tiền", payment: "Thanh toán" };
 
 function getBookingStartMs(booking: Booking) {
   const date = String(booking.date || "");
@@ -86,6 +88,17 @@ type BookingDetail = Booking & {
     status: string;
     paymentStatus: string;
   }>;
+  history?: BookingHistoryEntry[];
+};
+
+type BookingHistoryEntry = {
+  _id?: string;
+  changeType: "create" | "update" | "cancel" | "reschedule" | "refund" | "payment";
+  changedAt: string;
+  reason?: string;
+  paymentDelta?: number;
+  fieldBefore?: Record<string, unknown> | null;
+  fieldAfter?: Record<string, unknown> | null;
 };
 
 type RefundNotification = {
@@ -104,7 +117,7 @@ export default function MyBookings() {
   const user = useMemo(() => getUser(), []);
 
   const [cancelModal, setCancelModal] = useState({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 });
-  const [qrModal, setQrModal] = useState<{ isOpen: boolean; code: string | null; booking?: Booking | null; sessions?: Booking[]; selectedSession?: Booking | null }>({
+  const [qrModal, setQrModal] = useState<{ isOpen: boolean; code: string | null; booking?: Booking | null }>({
     isOpen: false,
     code: null,
     booking: null,
@@ -114,76 +127,23 @@ export default function MyBookings() {
     loading: false,
     detail: null,
   });
-  const [scheduleModal, setScheduleModal] = useState<{ booking: Booking | null; date: string; time: string }>({
-    booking: null,
-    date: "",
-    time: "",
+  const [rescheduleModal, setRescheduleModal] = useState<{
+    isOpen: boolean;
+    booking: Booking | null;
+    fields: Field[];
+    courts: Court[];
+    fieldId: number;
+    courtId: number;
+    date: string;
+    time: string;
+    duration: number;
+    reason: string;
+    submitting: boolean;
+    error: string;
+  }>({
+    isOpen: false, booking: null, fields: [], courts: [], fieldId: 0, courtId: 0,
+    date: "", time: "", duration: 1, reason: "", submitting: false, error: "",
   });
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [scheduleAvailability, setScheduleAvailability] = useState<{ field: Field | null; bookings: Booking[] }>({ field: null, bookings: [] });
-  const [scheduleAvailabilityLoading, setScheduleAvailabilityLoading] = useState(false);
-  const [scheduleAvailabilityError, setScheduleAvailabilityError] = useState("");
-  const [clockNow, setClockNow] = useState(Date.now());
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setClockNow(Date.now()), 30_000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const scheduleFieldId = scheduleModal.booking?.fieldId;
-  useEffect(() => {
-    if (!scheduleFieldId || !scheduleModal.date) return;
-    let active = true;
-    setScheduleAvailabilityLoading(true);
-    setScheduleAvailabilityError("");
-    Promise.all([
-      api.get<Field>(`/fields/${scheduleFieldId}`),
-      getBookingsByDate(scheduleModal.date, true),
-    ]).then(([fieldResponse, dayBookings]) => {
-      if (!active) return;
-      setScheduleAvailability({ field: fieldResponse.data, bookings: dayBookings });
-    }).catch(() => {
-      if (!active) return;
-      setScheduleAvailability({ field: null, bookings: [] });
-      setScheduleAvailabilityError("Không tải được lịch trống. Vui lòng thử lại.");
-    }).finally(() => {
-      if (active) setScheduleAvailabilityLoading(false);
-    });
-    return () => { active = false; };
-  }, [scheduleFieldId, scheduleModal.date]);
-
-  const scheduleTimeSlots = useMemo(() => {
-    const booking = scheduleModal.booking;
-    const field = scheduleAvailability.field;
-    if (!booking || !field || !scheduleModal.date) return [];
-
-    const [openHour, openMinute] = (field.openTime || "06:00").split(":").map(Number);
-    const [closeHour, closeMinute] = (field.closeTime || "22:00").split(":").map(Number);
-    const openAt = openHour * 60 + openMinute;
-    const closeAt = closeHour * 60 + closeMinute;
-    const duration = Number(booking.duration || 1);
-    const courtIds = booking.reservedCourtIds?.length ? booking.reservedCourtIds : [booking.courtId];
-    const slots: Array<{ time: string; disabled: boolean }> = [];
-
-    for (let minute = openAt; minute < closeAt; minute += 30) {
-      const time = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-      const outsideOpeningHours = minute + duration * 60 > closeAt;
-      const isPast = isPastVietnamSlot(scheduleModal.date, time, clockNow);
-      const isBooked = scheduleAvailability.bookings.some((other) => {
-        if (other.id === booking.id || other.status === "cancelled") return false;
-        const overlapsReservedCourt = courtIds.some((courtId) =>
-          other.courtId === courtId || other.reservedCourtIds?.includes(courtId)
-        );
-        return overlapsReservedCourt && isSlotConflict(other.time, other.duration || 1, time, duration);
-      });
-      slots.push({ time, disabled: outsideOpeningHours || isPast || isBooked });
-    }
-    return slots;
-  }, [scheduleModal.booking, scheduleModal.date, scheduleAvailability, clockNow]);
-
-  const selectedScheduleSlotAvailable = scheduleTimeSlots.some((slot) =>
-    slot.time === scheduleModal.time && !slot.disabled
-  );
 
   const load = useCallback(async () => {
     if (!user) {
@@ -315,31 +275,61 @@ export default function MyBookings() {
     }
   };
 
-  const payBalance = (booking: Booking) => {
-    const activeGroupBookings = booking.bookingGroupId
-      ? bookings.filter((item) => item.bookingGroupId === booking.bookingGroupId && item.status !== "cancelled")
-      : [booking];
-    const groupPaidAmount = activeGroupBookings.reduce((sum, item) => {
-      if (Number(item.paidAmount) > 0) return sum + Number(item.paidAmount);
-      if (item.paymentStatus === "deposit_paid") return sum + Math.round(Number(item.total) * 0.3);
-      if (item.paymentStatus === "paid") return sum + Number(item.total);
-      return sum;
-    }, 0);
-    navigate("/paygate", { state: { balanceBooking: { ...booking, groupPaidAmount } } });
-  };
-
-  const resumePayment = (booking: Booking) => {
-    navigate("/paygate", { state: { booking } });
-  };
-
-  const openTicket = async (booking: Booking, sessions?: Booking[]) => {
-    const code = sessions && sessions.length > 1
-      ? "LG" + String(booking.id).padStart(6, "0")
-      : "BK" + String(booking.id).padStart(6, "0");
-    setQrModal({ isOpen: true, code, booking, sessions, selectedSession: null });
+  const openPayment = async (booking: Booking, balance = false) => {
     try {
       const response = await api.get<BookingDetail>("/bookings/" + booking.id + "/detail");
-      setQrModal({ isOpen: true, code, booking: response.data, sessions, selectedSession: null });
+      navigate("/paygate", { state: balance ? { balanceBooking: response.data } : { booking: response.data } });
+    } catch {
+      navigate("/paygate", { state: balance ? { balanceBooking: booking } : { booking } });
+    }
+  };
+
+  const payBalance = (booking: Booking) => void openPayment(booking, true);
+  const resumePayment = (booking: Booking) => void openPayment(booking);
+
+  const openReschedule = async (booking: Booking) => {
+    setRescheduleModal({ isOpen: true, booking, fields: [], courts: [], fieldId: booking.fieldId, courtId: booking.courtId, date: booking.date, time: booking.time, duration: booking.duration || 1, reason: "", submitting: false, error: "" });
+    try {
+      const [fieldResponse, courtResponse] = await Promise.all([api.get<Field[]>("/fields"), api.get<Court[]>("/courts")]);
+      setRescheduleModal((current) => ({ ...current, fields: fieldResponse.data, courts: courtResponse.data }));
+    } catch {
+      setRescheduleModal((current) => ({ ...current, error: "Không tải được danh sách sân. Vui lòng đóng và thử lại." }));
+    }
+  };
+
+  const submitReschedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const booking = rescheduleModal.booking;
+    if (!booking?.bookingGroupId) return;
+    setRescheduleModal((current) => ({ ...current, submitting: true, error: "" }));
+    try {
+      const response = await api.patch("/booking-groups/" + booking.bookingGroupId + "/children/" + booking.id, {
+        newFieldId: rescheduleModal.fieldId, newCourtId: rescheduleModal.courtId, newDate: rescheduleModal.date,
+        newTime: rescheduleModal.time, newDuration: rescheduleModal.duration, reason: rescheduleModal.reason,
+      });
+      if (response.data.status === "requires_payment") {
+        const adjustment = response.data.adjustment;
+        const paymentResponse = await api.post("/vnpay/create-url", {
+          orderId: String(booking.id), amount: adjustment.paymentDelta, paymentKind: "adjustment", adjustmentId: adjustment.id, language: "vn",
+        });
+        window.location.href = paymentResponse.data.paymentUrl;
+        return;
+      }
+      toast.success(response.data.message || "Đổi lịch thành công");
+      setRescheduleModal((current) => ({ ...current, isOpen: false, submitting: false }));
+      await load();
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Đổi lịch thất bại, đơn cũ đã được giữ nguyên";
+      setRescheduleModal((current) => ({ ...current, submitting: false, error: message }));
+    }
+  };
+
+  const openTicket = async (booking: Booking) => {
+    const code = "BK" + String(booking.id).padStart(6, "0");
+    setQrModal({ isOpen: true, code, booking });
+    try {
+      const response = await api.get<BookingDetail>("/bookings/" + booking.id + "/detail");
+      setQrModal({ isOpen: true, code, booking: response.data });
     } catch {
       toast.error("Chưa tải được địa chỉ chi tiết; vé vẫn có thể sử dụng.");
     }
@@ -356,96 +346,37 @@ export default function MyBookings() {
     }
   };
 
-  const openScheduleModal = (booking: Booking) => {
-    setScheduleModal({ booking, date: booking.date, time: booking.time });
-  };
-
-  const submitReschedule = async () => {
-    const booking = scheduleModal.booking;
-    if (!booking || !scheduleModal.date || !scheduleModal.time) {
-      toast.error("Vui lòng chọn ngày và giờ mới");
-      return;
-    }
-    if (scheduleAvailabilityLoading || scheduleAvailabilityError || !selectedScheduleSlotAvailable) {
-      toast.error("Khung giờ này đã kín hoặc chưa kiểm tra được lịch trống");
-      return;
-    }
-    setScheduleSaving(true);
-    try {
-      const response = await api.post<Booking>(`/bookings/${booking.id}/reschedule`, {
-        date: scheduleModal.date,
-        time: scheduleModal.time,
-      });
-      invalidateApiCache(`bookings:date:${booking.date}`);
-      invalidateApiCache(`bookings:date:${response.data.date}`);
-      setBookings((previous) => previous.map((item) => item.id === booking.id ? response.data : item));
-      setScheduleModal({ booking: null, date: "", time: "" });
-      toast.success("Đã đổi lịch buổi này; các buổi khác được giữ nguyên");
-    } catch (error: unknown) {
-      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(message || "Không thể đổi lịch. Vui lòng kiểm tra giờ mới.");
-    } finally {
-      setScheduleSaving(false);
-    }
-  };
-
   const extendOneHour = async (b: Booking) => {
     if (!confirm("Bạn có muốn gia hạn thuê thêm 1 giờ ngay sau khung hiện tại?")) return;
     try {
-      const response = await api.post<Booking>(`/bookings/${b.id}/extend`);
-      setBookings((previous) => previous.map((item) => item.id === b.id ? response.data : item));
-      toast.success("Đã gia hạn 1 giờ trong cùng đơn đặt sân");
-    } catch (error: unknown) {
-      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(message || "Không thể gia hạn thêm giờ");
+      const [h, m] = b.time.split(":").map(Number);
+      const startMin = h * 60 + m + (b.duration || 1) * 60;
+      const nh = Math.floor(startMin / 60) % 24;
+      const nm = startMin % 60;
+      const newTime = `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
+      const pricePerHour = b.duration ? Math.round(b.total / b.duration) : b.total;
+
+      await api.post("/bookings", {
+        fieldId: b.fieldId,
+        courtId: b.courtId,
+        fieldName: b.fieldName,
+        court: b.court,
+        date: b.date,
+        time: newTime,
+        duration: 1,
+        total: pricePerHour,
+        customer: b.customer,
+        paymentMethod: "cash",
+        paymentStatus: "unpaid",
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+      toast.success(`Đã đặt thêm 1 giờ (${newTime}). Vui lòng kiểm tra danh sách!`);
+      load();
+    } catch {
+      toast.error("Không thể gia hạn thêm giờ");
     }
   };
-
-  const paymentRepresentativeIds = useMemo(() => {
-    const groupMembers = new Map<string, Booking[]>();
-    const representatives = new Set<number>();
-    bookings.forEach((booking) => {
-      if (!booking.bookingGroupId) {
-        representatives.add(booking.id);
-        return;
-      }
-      const members = groupMembers.get(booking.bookingGroupId) || [];
-      members.push(booking);
-      groupMembers.set(booking.bookingGroupId, members);
-    });
-    groupMembers.forEach((members) => {
-      const activeMembers = members.filter((booking) => booking.status !== "cancelled");
-      const representative = activeMembers[0];
-      if (representative) representatives.add(representative.id);
-    });
-    return representatives;
-  }, [bookings]);
-  const paidAmountByGroup = useMemo(() => {
-    const amounts = new Map<string, number>();
-    bookings.forEach((booking) => {
-      if (!booking.bookingGroupId || booking.status === "cancelled") return;
-      amounts.set(
-        booking.bookingGroupId,
-        (amounts.get(booking.bookingGroupId) || 0) + Number(booking.paidAmount || 0)
-      );
-    });
-    return amounts;
-  }, [bookings]);
-  const bookingCards = useMemo(() => {
-    const groups = new Map<string, Booking[]>();
-    bookings.forEach((booking) => {
-      const key = booking.bookingGroupId || `booking:${booking.id}`;
-      const members = groups.get(key) || [];
-      members.push(booking);
-      groups.set(key, members);
-    });
-    return [...groups.entries()]
-      .map(([key, sessions]) => ({
-        key,
-        sessions: sessions.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.id - b.id),
-      }))
-      .sort((a, b) => newestBookingFirst(a.sessions[0], b.sessions[0]));
-  }, [bookings]);
 
   if (loading) {
     return (
@@ -462,6 +393,7 @@ export default function MyBookings() {
     pending: bookings.filter((b) => b.status === "pending").length,
     cancelled: bookings.filter((b) => b.status === "cancelled").length,
   };
+
   return (
     <div className="min-h-screen bg-[#f7f8f6] text-slate-700 py-10 px-4">
       <div className="max-w-4xl mx-auto">
@@ -523,27 +455,16 @@ export default function MyBookings() {
           </div>
         ) : (
           <div className="space-y-4">
-            {bookingCards.map(({ key, sessions }) => {
-              const isGroupedBooking = Boolean(sessions[0].bookingGroupId && sessions.length > 1);
-              const b = sessions.find((session) => paymentRepresentativeIds.has(session.id)) || sessions[0];
+            {bookings.map((b) => {
               const st = statusConfig[b.status] || statusConfig.pending;
-              const bookingCode = isGroupedBooking
-                ? `Lịch dài hạn · ${sessions.length} buổi`
-                : `BK${String(b.id).padStart(6, "0")}`;
+              const bookingCode = `BK${String(b.id).padStart(6, "0")}`;
               const canCancel = b.status === "pending" || b.status === "confirmed";
-              const isPaymentRepresentative = paymentRepresentativeIds.has(b.id);
-              const groupTotal = Number(b.groupTotal || b.total);
-              const amountPaid = b.bookingGroupId
-                ? paidAmountByGroup.get(b.bookingGroupId) || 0
-                : Number(b.paidAmount || 0);
-              const depositAmount = amountPaid > 0 ? amountPaid : Math.round(groupTotal * 0.3);
               const canResumePayment = b.status === "pending" && b.paymentStatus === "unpaid" &&
-                (!b.paymentExpiresAt || new Date(b.paymentExpiresAt).getTime() > Date.now()) &&
-                isPaymentRepresentative;
+                (!b.paymentExpiresAt || new Date(b.paymentExpiresAt).getTime() > Date.now());
 
               return (
                 <div
-                  key={key}
+                  key={b.id}
                   className="bg-white rounded-3xl border border-slate-200 overflow-hidden hover:border-amber-300 transition-all shadow-sm group"
                 >
                   {/* Card Header */}
@@ -551,6 +472,7 @@ export default function MyBookings() {
                     <div className="flex items-center gap-3">
                       <div className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />
                       <span className="font-mono font-bold text-slate-900 text-base">{bookingCode}</span>
+                      {b.groupSize && b.groupSize > 1 && <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">Đơn đặt sân tổng · buổi con</span>}
                       <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full ${st.className}`}>
                         {st.icon}
                         {st.label}
@@ -563,75 +485,32 @@ export default function MyBookings() {
 
                   {/* Card Body */}
                   <div className="p-6">
-                    {isGroupedBooking ? (
-                      <div className="mb-6 divide-y divide-slate-100 border-y border-slate-100">
-                        <div className="hidden grid-cols-[1fr_1fr_1fr_auto] gap-4 py-2 text-[10px] font-bold uppercase text-slate-400 md:grid">
-                          <span>Buổi · sân</span><span>Ngày · giờ</span><span>Giá buổi</span><span>Thao tác</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                      <div className="flex items-start gap-3">
+                        <MapPin className="w-4 h-4 text-amber-500 shrink-0 mt-1" />
+                        <div>
+                          <div className="font-extrabold text-slate-900 text-base">{b.fieldName}</div>
+                          <div className="text-xs text-slate-500 mt-0.5 font-medium">Sân thi đấu: <span className="text-amber-600 font-bold">{b.court}</span></div>
+                          {b.bookingMode === "full_field" && (
+                            <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-amber-800">
+                              Bao toàn bộ sân · {b.reservedCourtIds?.length || 0} sân con
+                            </span>
+                          )}
                         </div>
-                        {sessions.map((session, index) => {
-                          const sessionCanCancel = session.status === "pending" || session.status === "confirmed";
-                          return (
-                            <div key={session.id} className="grid grid-cols-1 gap-3 py-4 md:grid-cols-[1fr_1fr_0.7fr_auto] md:items-center">
-                              <div>
-                                <div className="font-bold text-slate-900">Buổi {index + 1} · {session.fieldName}</div>
-                                <div className="mt-0.5 text-xs text-slate-500">Sân: <span className="font-bold text-amber-700">{session.court}</span></div>
-                              </div>
-                              <div className="text-sm font-semibold text-slate-700">
-                                {session.date} · {formatSlotRange(session.time, session.duration || 1)}
-                              </div>
-                              <div className="text-sm font-bold text-slate-800">{formatCurrency(session.total)}</div>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {sessionCanCancel && (
-                                  <button type="button" onClick={() => openScheduleModal(session)} className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-50">
-                                    Đổi lịch
-                                  </button>
-                                )}
-                                {session.status !== "cancelled" && (
-                                  <button type="button" onClick={() => openTicket(session)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                                    Vé
-                                  </button>
-                                )}
-                                {sessionCanCancel && (
-                                  <button type="button" onClick={() => openCancelModal(session)} className="rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">
-                                    Hủy buổi
-                                  </button>
-                                )}
-                                {!sessionCanCancel && session.status === "cancelled" && (
-                                  <span className="text-xs font-bold text-rose-500">Đã hủy</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2">
-                        <div className="flex items-start gap-3">
-                          <MapPin className="w-4 h-4 text-amber-500 shrink-0 mt-1" />
-                          <div>
-                            <div className="font-extrabold text-slate-900 text-base">{b.fieldName}</div>
-                            <div className="text-xs text-slate-500 mt-0.5 font-medium">Sân thi đấu: <span className="text-amber-600 font-bold">{b.court}</span></div>
-                            {b.bookingMode === "full_field" && (
-                              <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-black uppercase text-amber-800">
-                                Bao toàn bộ sân · {b.reservedCourtIds?.length || 0} sân con
-                              </span>
-                            )}
+
+                      <div className="flex items-start gap-3">
+                        <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-1" />
+                        <div>
+                          <div className="font-extrabold text-slate-900 text-base">
+                            {b.time} ({b.duration || 1} giờ)
                           </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-1" />
-                          <div>
-                            <div className="font-extrabold text-slate-900 text-base">{b.time} ({b.duration || 1} giờ)</div>
-                            <div className="text-xs text-slate-500 mt-0.5 font-medium">Ngày: <span className="text-slate-900 font-bold">{b.date}</span></div>
-                            {Number(b.extensionHours) > 0 && (
-                              <div className="mt-1 text-xs font-bold text-amber-700">
-                                Thuê thêm: {formatSlotRange(b.time, Math.max(0, (b.duration || 1) - Number(b.extensionHours))).split(" – ")[1]} – {formatSlotRange(b.time, b.duration || 1).split(" – ")[1]}
-                              </div>
-                            )}
+                          <div className="text-xs text-slate-500 mt-0.5 font-medium">
+                            Ngày: <span className="text-slate-900 font-bold">{b.date}</span>
                           </div>
                         </div>
                       </div>
-                    )}
+                    </div>
 
                     {(b.status === "cancelled" || b.refundStatus === "pending" || b.refundStatus === "completed") && (
                       <div
@@ -661,14 +540,9 @@ export default function MyBookings() {
                       <div>
                         <div className="text-[11px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">{b.groupSize && b.groupSize > 1 ? "Tổng nhóm · " + b.groupSize + " buổi" : "Tổng tiền"}</div>
                         <div className="text-xl font-black text-amber-600">
-                          {formatCurrency(b.groupSize && b.groupSize > 1 ? groupTotal : b.total)}
-                          {b.paymentStatus === "deposit_paid" && (
-                            <span className="text-xs text-gray-400 font-normal ml-2">(Đã thanh toán {formatCurrency(depositAmount)} · còn {formatCurrency(Math.max(0, groupTotal - depositAmount))})</span>
-                          )}
-                          {b.paymentStatus === "paid" && (
-                            <span className="mt-1 block text-xs font-bold text-emerald-700">
-                              Đã thanh toán đủ 100% · {formatCurrency(amountPaid > 0 ? amountPaid : groupTotal)}
-                            </span>
+                          {formatCurrency(b.groupSize && b.groupSize > 1 ? Number(b.groupTotal || b.total) : b.total)}
+                          {b.paymentMethod === "deposit" && b.paymentStatus === "deposit_paid" && (
+                            <span className="text-xs text-gray-400 font-normal ml-2">(Đã cọc 30% · còn {formatCurrency(Math.max(0, Number(b.groupTotal || b.total) - Math.round(Number(b.groupTotal || b.total) * 0.3)))})</span>
                           )}
                           {b.paymentMethod === "deposit" && b.paymentStatus === "unpaid" && (
                             <span className="text-xs text-rose-500 font-normal ml-2">(Chưa thanh toán tiền cọc)</span>
@@ -690,27 +564,13 @@ export default function MyBookings() {
                           Xem chi tiết
                         </button>
 
-                        {isGroupedBooking && (
-                          <button
-                            type="button"
-                            onClick={() => openTicket(b, sessions)}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
-                          >
-                            <Printer className="h-3.5 w-3.5" /> In cả lịch
+                        {b.bookingGroupId && ["pending", "confirmed"].includes(b.status) && (
+                          <button type="button" onClick={() => openReschedule(b)} className="min-h-11 border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 rounded-xl flex items-center gap-1.5">
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Đổi buổi này
                           </button>
                         )}
 
-                        {!isGroupedBooking && b.groupSize && b.groupSize > 1 && canCancel && (
-                          <button
-                            type="button"
-                            onClick={() => openScheduleModal(b)}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800 transition hover:border-amber-400 hover:bg-amber-100"
-                          >
-                            <CalendarDays className="h-3.5 w-3.5" /> Đổi buổi này
-                          </button>
-                        )}
-
-                        {!isGroupedBooking && b.status !== "cancelled" && (
+                        {b.status !== "cancelled" && (
                         <button
                           type="button"
                           onClick={() => openTicket(b)}
@@ -721,7 +581,7 @@ export default function MyBookings() {
                         </button>
                         )}
 
-                        {!isGroupedBooking && b.status !== "cancelled" && (
+                        {b.status !== "cancelled" && (
                           <button
                             type="button"
                             onClick={() => extendOneHour(b)}
@@ -742,23 +602,23 @@ export default function MyBookings() {
                           </button>
                         )}
 
-                        {b.status === "confirmed" && b.paymentStatus === "deposit_paid" && isPaymentRepresentative && (
+                        {b.status === "confirmed" && b.paymentStatus === "deposit_paid" && (
                           <button
                             type="button"
                             onClick={() => payBalance(b)}
                             className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-3.5 py-2 rounded-xl transition-all"
                           >
-                            {b.groupSize && b.groupSize > 1 ? "Thanh toán phần còn lại của lịch" : "Thanh toán phần còn lại"}
+                            Thanh toán 70% còn lại
                           </button>
                         )}
 
-                        {!isGroupedBooking && canCancel && (
+                        {canCancel && (
                           <button
                             type="button"
                             onClick={() => openCancelModal(b)}
                             className="text-rose-400 hover:bg-rose-500/10 border border-rose-500/20 text-xs font-bold px-3.5 py-2 rounded-xl transition-all"
                           >
-                            Hủy đơn
+                            {b.groupSize && b.groupSize > 1 ? "Hủy buổi này" : "Hủy đơn"}
                           </button>
                         )}
 
@@ -775,25 +635,7 @@ export default function MyBookings() {
         {qrModal.isOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Vé check-in điện tử">
             <div className="w-full max-w-2xl py-8">
-              {qrModal.booking && (qrModal.selectedSession ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setQrModal((current) => ({ ...current, selectedSession: null }))}
-                    className="mb-3 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20"
-                  >
-                    Quay lại vé cả lịch
-                  </button>
-                  <BookingPass booking={qrModal.selectedSession} />
-                </>
-              ) : (
-                <BookingPass
-                  booking={qrModal.booking}
-                  code={qrModal.code || undefined}
-                  sessions={qrModal.sessions}
-                  onSessionSelect={(session) => setQrModal((current) => ({ ...current, selectedSession: session }))}
-                />
-              ))}
+              {qrModal.booking && <BookingPass booking={qrModal.booking} code={qrModal.code || undefined} />}
               <button
                 type="button"
                 onClick={() => setQrModal({ isOpen: false, code: null, booking: null })}
@@ -907,6 +749,22 @@ export default function MyBookings() {
                         </div>
                       )}
 
+                      {detail.history && detail.history.length > 0 && (
+                        <section className="rounded-2xl border border-slate-200 p-4" aria-label="Lịch sử thay đổi của buổi này">
+                          <h3 className="flex items-center gap-2 text-sm font-black text-slate-950"><History className="h-4 w-4 text-amber-600" aria-hidden="true" /> Lịch sử buổi này</h3>
+                          <ol className="mt-3 space-y-3 border-l-2 border-amber-200 pl-4">
+                            {detail.history.map((entry, index) => (
+                              <li key={entry._id || entry.changedAt + index} className="relative">
+                                <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-amber-500 ring-4 ring-white" />
+                                <div className="text-sm font-bold text-slate-900">{historyLabels[entry.changeType] || entry.changeType}</div>
+                                <div className="mt-0.5 text-xs text-slate-500">{new Date(entry.changedAt).toLocaleString("vi-VN")}{entry.reason ? " · " + entry.reason : ""}</div>
+                                {Number(entry.paymentDelta || 0) !== 0 && <div className={"mt-1 text-xs font-bold " + (Number(entry.paymentDelta) > 0 ? "text-rose-600" : "text-emerald-700")}>{Number(entry.paymentDelta) > 0 ? "Phụ thu " : "Hoàn/giảm "}{formatCurrency(Math.abs(Number(entry.paymentDelta)))}</div>}
+                              </li>
+                            ))}
+                          </ol>
+                        </section>
+                      )}
+
                       {detail.field?.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone className="h-4 w-4 text-amber-600" /> Liên hệ sân: <a className="font-bold text-slate-950" href={`tel:${detail.field.phone}`}>{detail.field.phone}</a></div>}
                     </>
                   )}
@@ -917,72 +775,7 @@ export default function MyBookings() {
           );
         })()}
 
-        {scheduleModal.booking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="reschedule-title">
-            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
-              <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700"><CalendarDays className="h-5 w-5" /></span>
-                <div>
-                  <h2 id="reschedule-title" className="text-xl font-black text-slate-950">Đổi lịch buổi này</h2>
-                  <p className="mt-1 text-sm text-slate-500">BK{String(scheduleModal.booking.id).padStart(6, "0")} · {scheduleModal.booking.fieldName}</p>
-                </div>
-              </div>
-              <p className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
-                Chỉ ngày và giờ của buổi này thay đổi. Sân, thời lượng, giá và các buổi còn lại trong lịch nhóm được giữ nguyên.
-              </p>
-              <div className="mt-5 grid gap-4">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Ngày mới
-                  <input type="date" min={vietnamTodayIso()} value={scheduleModal.date} onChange={(event) => setScheduleModal((current) => ({ ...current, date: event.target.value }))} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 outline-none focus:border-amber-400" />
-                </label>
-                <fieldset>
-                  <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Khung giờ còn trống · mỗi 30 phút</legend>
-                  {scheduleModal.time && scheduleModal.booking && (
-                    <div className="mb-3 grid grid-cols-2 gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                      <div><div className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Giờ bắt đầu</div><div className="mt-1 text-base font-black text-slate-950">{scheduleModal.time}</div></div>
-                      <div><div className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Giờ kết thúc</div><div className="mt-1 text-base font-black text-slate-950">{formatSlotRange(scheduleModal.time, scheduleModal.booking.duration || 1).split(" – ")[1]}</div></div>
-                    </div>
-                  )}
-                  {scheduleAvailabilityLoading ? (
-                    <div className="flex min-h-16 items-center gap-2 text-sm font-semibold text-slate-500" role="status"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải khung giờ...</div>
-                  ) : scheduleAvailabilityError ? (
-                    <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700" role="alert">{scheduleAvailabilityError}</p>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                      {scheduleTimeSlots.map((slot) => {
-                        const selected = scheduleModal.time === slot.time;
-                        return (
-                          <button
-                            key={slot.time}
-                            type="button"
-                            disabled={slot.disabled}
-                            aria-pressed={selected}
-                            aria-label={`${formatSlotRange(slot.time, scheduleModal.booking?.duration || 1)}${slot.disabled ? ", không khả dụng" : ""}`}
-                            onClick={() => setScheduleModal((current) => ({ ...current, time: slot.time }))}
-                            className={`min-h-14 rounded-xl border px-2 py-1.5 text-xs font-bold transition ${selected ? "border-amber-400 bg-amber-400 text-slate-950" : slot.disabled ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:border-amber-400 hover:text-amber-800"}`}
-                          >
-                            <span className="block">{slot.time}</span>
-                            <span className={`mt-0.5 block text-[10px] font-semibold ${selected ? "text-slate-800" : "text-slate-500"}`}>
-                              {formatSlotRange(slot.time, scheduleModal.booking?.duration || 1).split(" – ")[1]}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {!scheduleAvailabilityLoading && !scheduleAvailabilityError && scheduleTimeSlots.length > 0 && scheduleTimeSlots.every((slot) => slot.disabled) && (
-                    <p className="mt-2 text-xs font-semibold text-slate-500">Ngày này không còn khung giờ phù hợp cho thời lượng đã đặt.</p>
-                  )}
-                </fieldset>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-slate-500">Lịch mới cần còn trống và nằm trong giờ hoạt động của cơ sở. Nếu slot bị người khác đặt trước, lịch hiện tại sẽ được giữ nguyên.</p>
-              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
-                <button type="button" disabled={scheduleSaving} onClick={() => setScheduleModal({ booking: null, date: "", time: "" })} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 disabled:opacity-50">Để sau</button>
-                <button type="button" disabled={scheduleSaving || scheduleAvailabilityLoading || Boolean(scheduleAvailabilityError) || !selectedScheduleSlotAvailable} onClick={submitReschedule} className="min-h-11 flex-1 rounded-xl bg-slate-950 px-4 text-sm font-extrabold text-white transition hover:bg-amber-400 hover:text-slate-950 disabled:opacity-50">{scheduleSaving ? "Đang cập nhật..." : "Xác nhận đổi lịch"}</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <BookingRescheduleModal state={rescheduleModal} setState={setRescheduleModal} onSubmit={submitReschedule} />
 
         {/* Cancel Refund Modal */}
         {cancelModal.isOpen && (
@@ -990,7 +783,7 @@ export default function MyBookings() {
             <div className="bg-white border border-rose-200 rounded-3xl p-8 max-w-md w-full shadow-xl relative">
               <h3 className="text-xl font-black text-slate-950 mb-2 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-400" />
-                Hủy đơn & Chính sách hoàn tiền
+                Hủy buổi đặt sân & Chính sách hoàn tiền
               </h3>
               <p className="text-slate-500 text-xs mb-6 leading-relaxed">
                 {cancelModal.refundRate === 100
@@ -1001,12 +794,6 @@ export default function MyBookings() {
                       ? "Đã đến hoặc quá giờ sân: đơn vẫn được hủy nhưng không hoàn tiền."
                       : "Đơn chưa thanh toán sẽ được hủy ngay và nhả lại khung giờ."}
               </p>
-
-              {bookings.find((booking) => booking.id === cancelModal.bookingId)?.groupSize && Number(bookings.find((booking) => booking.id === cancelModal.bookingId)?.groupSize) > 1 && (
-                <p className="-mt-3 mb-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-900">
-                  Chỉ hủy buổi đang chọn; các buổi khác trong lịch nhóm vẫn giữ nguyên.
-                </p>
-              )}
 
               {cancelModal.refundAmount > 0 && (
                 <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -1054,7 +841,7 @@ export default function MyBookings() {
                   onClick={submitCancel}
                   className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-3 rounded-xl font-bold text-sm transition-colors"
                 >
-                  Xác nhận hủy đơn
+                  Xác nhận hủy buổi
                 </button>
               </div>
             </div>

@@ -302,9 +302,9 @@ export default function AdminBookings() {
                     <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || "vnpay").toUpperCase()}</div>
                     <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || "Đang cập nhật"}</div>
                   </>
-                ) : ["owner_cancelled", "maintenance"].includes(r.refundReason || "") ? (
+                ) : ["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(r.refundReason || "") ? (
                   <>
-                    <div><span className="font-semibold">Lý do:</span> {r.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy"}</div>
+                    <div><span className="font-semibold">Lý do:</span> {r.refundReason === "maintenance" ? "Bảo trì đột xuất" : r.refundReason === "reschedule_price_difference" ? "Chênh lệch do đổi lịch" : "Chủ sân hủy"}</div>
                     <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || (r.paymentMethod === "cash" ? "tiền mặt" : "chưa xác định")).toUpperCase()}</div>
                     <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || r.refundPaymentCode || "Chưa có giao dịch điện tử"}</div>
                   </>
@@ -319,7 +319,7 @@ export default function AdminBookings() {
           );
         }
         if (r.refundStatus === "completed") {
-          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div><div className="mt-1">{["owner_cancelled", "maintenance"].includes(r.refundReason || "") ? "Phương thức thanh toán gốc" : (r.refundBank || "—") + " · " + (r.refundStk || "—")}</div></div>;
+          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div><div className="mt-1">{["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(r.refundReason || "") ? "Phương thức thanh toán gốc" : (r.refundBank || "—") + " · " + (r.refundStk || "—")}</div></div>;
         }
         return <span className="text-xs text-gray-400">Không có</span>;
       },
@@ -598,14 +598,14 @@ export default function AdminBookings() {
               <p className="text-sm leading-6 text-slate-600">
                 {refundModalBooking.refundReason === "duplicate_or_expired_payment"
                   ? "Thực hiện hoàn tiền theo giao dịch gốc trên cổng thanh toán, sau đó xác nhận kết quả cho khách."
-                  : ["owner_cancelled", "maintenance"].includes(refundModalBooking.refundReason || "")
+                  : ["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(refundModalBooking.refundReason || "")
                     ? "Đơn do phía sân hủy nên khách được hoàn 100%. Hoàn về phương thức thanh toán ban đầu, sau đó xác nhận kết quả."
                     : <>Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</>}
               </p>
-              {["duplicate_or_expired_payment", "owner_cancelled", "maintenance"].includes(refundModalBooking.refundReason || "") ? (
+              {["duplicate_or_expired_payment", "owner_cancelled", "maintenance", "reschedule_price_difference"].includes(refundModalBooking.refundReason || "") ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <div>Khách hàng: <strong>{refundModalBooking.customer?.fullName || "—"}</strong></div>
-                  <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "duplicate_or_expired_payment" ? "Thanh toán dư hoặc quá hạn" : refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : "Chủ sân hủy lịch"}</strong></div>
+                  <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "duplicate_or_expired_payment" ? "Thanh toán dư hoặc quá hạn" : refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : refundModalBooking.refundReason === "reschedule_price_difference" ? "Chênh lệch do đổi lịch" : "Chủ sân hủy lịch"}</strong></div>
                   {refundModalBooking.refundPayments?.length ? (
                     <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
                       {refundModalBooking.refundPayments.map((payment) => (

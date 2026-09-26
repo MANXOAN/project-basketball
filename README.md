@@ -37,6 +37,17 @@ Dữ liệu seed chính nằm tại [`Frontend/db.json`](Frontend/db.json). File
 
 `git pull` chỉ lấy source code và file seed. Nếu cần mang nguyên lịch sử booking/MongoDB hiện có từ một máy sang máy khác, hãy export/import MongoDB; không chạy seed trên database dùng chung đang có dữ liệu cần giữ.
 
+## Cập nhật tính năng đặt sân ngày 26/09/2026
+
+Xem [UPDATE_NOTE_2026-09-26.md](UPDATE_NOTE_2026-09-26.md) để biết đầy đủ:
+
+- Đặt một buổi, hàng tuần và trọn tháng.
+- Kiểm tra trùng toàn bộ lịch, gợi ý giờ khác hoặc bỏ riêng ngày bị trùng.
+- Booking group, hủy/đổi từng buổi và thanh toán phụ thu/hoàn chênh lệch.
+- Timeline lịch sử đơn.
+- Quản lý cơ sở và sân con.
+- Thay đổi database, hướng dẫn pull và checklist test cho user/manager/admin.
+
 ## Thay đổi gần đây
 
 - Danh sách cơ sở và sân chỉ lấy từ backend/database; đã bỏ dữ liệu sân demo fallback ở frontend.
@@ -46,7 +57,6 @@ Dữ liệu seed chính nằm tại [`Frontend/db.json`](Frontend/db.json). File
   `https://gw.vba.vn/api/vba/blogs`.
   Backend cache kết quả 10 phút; nếu VBA không phản hồi, API trả lỗi rõ ràng thay vì bài viết mẫu.
 - Các trang quản trị lịch và đơn đặt sân cũng không còn fallback sang dữ liệu demo.
-- Đặt lịch dài hạn hỗ trợ lặp hằng ngày hoặc hằng tuần trong khoảng ngày đã chọn; từng buổi vẫn là booking con độc lập để đổi lịch hoặc hủy riêng.
 
 ## Endpoint cần kiểm tra
 

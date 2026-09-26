@@ -8,7 +8,7 @@ import { setAuth } from "../lib/auth";
 function Login() {
   const navigate = useNavigate();
 
-  const onFinish = async (values: any) => {
+  const onFinish = async (values: { email: string; password: string }) => {
     try {
       const res = await api.post("/login", {
         email: values.email,
@@ -21,7 +21,7 @@ function Login() {
         ? requestedReturnTo
         : "/";
       navigate(returnTo, { replace: true });
-    } catch (error) {
+    } catch {
       toast.error("Sai email hoặc mật khẩu!");
     }
   };

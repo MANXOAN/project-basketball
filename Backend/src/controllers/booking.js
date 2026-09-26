@@ -5,12 +5,14 @@ import Payment from "../models/Payment";
 import BookingGroup from "../models/BookingGroup";
 import BookingSlot from "../models/BookingSlot";
 import Notification from "../models/Notification";
+import BookingHistory from "../models/BookingHistory";
+import BookingAdjustment from "../models/BookingAdjustment";
 import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 import Voucher from "../models/Voucher";
 import { sendMail } from "../utils/mailer";
-import { buildCashBookingEmail } from "../utils/bookingEmail";
 import { bookingModeFor, expandBookingSchedule } from "../services/bookingPlan";
+import { appendBookingHistory, syncBookingGroup } from "../services/bookingGroupService";
 import {
   calculateVoucherDiscount,
   normalizeVoucherCode,
@@ -22,14 +24,6 @@ import {
 function toMin(t) {
   const [h, m] = String(t).split(":").map(Number);
   return h * 60 + (m || 0);
-}
-
-function queueCashBookingEmail(booking) {
-  if (!booking.customer?.email) return;
-  const email = buildCashBookingEmail(booking);
-  sendMail(booking.customer.email, email.subject, email.html).catch((error) => {
-    console.error("Cash booking email failed:", error.message);
-  });
 }
 
 function slotTimes(time, duration) {
@@ -130,24 +124,6 @@ function splitAmount(amount, count, index) {
   return base + (index < whole % count ? 1 : 0);
 }
 
-function allocateAmountByWeights(amount, weights) {
-  const whole = Math.max(0, Math.round(Number(amount) || 0));
-  const weightTotal = weights.reduce((sum, weight) => sum + Math.max(0, Number(weight) || 0), 0);
-  if (!weights.length) return [];
-  if (!weightTotal) return weights.map((_weight, index) => splitAmount(whole, weights.length, index));
-
-  const exactShares = weights.map((weight) => whole * Math.max(0, Number(weight) || 0) / weightTotal);
-  const shares = exactShares.map(Math.floor);
-  let remainder = whole - shares.reduce((sum, share) => sum + share, 0);
-  const remainderOrder = exactShares
-    .map((share, index) => ({ index, remainder: share - shares[index] }))
-    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
-  for (let index = 0; remainder > 0; index += 1, remainder -= 1) {
-    shares[remainderOrder[index % remainderOrder.length].index] += 1;
-  }
-  return shares;
-}
-
 async function releaseVoucherUsageForGroups(groupIds) {
   if (!groupIds.length) return;
   const groups = await BookingGroup.find({
@@ -173,36 +149,6 @@ async function releaseVoucherUsageForGroups(groupIds) {
   }
 }
 
-async function refreshBookingGroupStatus(groupId) {
-  if (!groupId) return;
-  const members = await Booking.find({ bookingGroupId: groupId }).select("status total");
-  if (!members.length) return;
-
-  const allCancelled = members.every((member) => member.status === "cancelled");
-  const hasCancelled = members.some((member) => member.status === "cancelled");
-  const allCompleted = members.every((member) => member.status === "completed");
-  const status = allCancelled
-    ? "cancelled"
-    : hasCancelled
-      ? "partially_cancelled"
-      : allCompleted
-        ? "completed"
-        : members.some((member) => member.status === "pending")
-          ? "pending"
-          : "confirmed";
-
-  await BookingGroup.updateOne({ id: groupId }, { $set: { status } });
-  const activeMembers = members.filter((member) => member.status !== "cancelled");
-  if (activeMembers.length) {
-    const activeTotal = activeMembers.reduce((sum, member) => sum + Number(member.total || 0), 0);
-    await Booking.updateMany(
-      { bookingGroupId: groupId, status: { $ne: "cancelled" } },
-      { $set: { groupTotal: activeTotal } }
-    );
-  }
-  if (allCancelled) await releaseVoucherUsageForGroups([groupId]);
-}
-
 export async function expirePendingPayments() {
   const expired = await Booking.find({
     status: "pending",
@@ -212,6 +158,7 @@ export async function expirePendingPayments() {
   const expiredIds = expired.map((booking) => booking.id);
   const expiredGroupIds = [...new Set(expired.map((booking) => booking.bookingGroupId).filter(Boolean))];
   if (expiredIds.length) {
+    await BookingHistory.insertMany(expired.map((booking) => ({ bookingId: booking.id, bookingGroupId: booking.bookingGroupId || "", changeType: "cancel", source: "system", reason: "payment_expired", fieldBefore: { status: "pending" }, fieldAfter: { status: "cancelled" }, statusBefore: "pending", statusAfter: "cancelled" })));
     await BookingSlot.deleteMany({ bookingId: { $in: expiredIds } });
   }
   await Booking.updateMany(
@@ -297,13 +244,14 @@ export async function getBookingDetail(req, res) {
     const reservedCourtIds = booking.reservedCourtIds?.length
       ? booking.reservedCourtIds
       : [booking.courtId];
-    const [field, court, reservedCourts, groupBookings] = await Promise.all([
+    const [field, court, reservedCourts, groupBookings, history] = await Promise.all([
       Field.findOne({ id: booking.fieldId }),
       Court.findOne({ id: booking.courtId }),
       Court.find({ id: { $in: reservedCourtIds } }).sort({ id: 1 }),
       booking.bookingGroupId
         ? Booking.find({ bookingGroupId: booking.bookingGroupId }).sort({ date: 1, time: 1, id: 1 })
         : Promise.resolve([booking]),
+      BookingHistory.find({ bookingId: id }).sort({ changedAt: -1 }),
     ]);
     const data = serialize(booking);
     return res.json({
@@ -333,6 +281,7 @@ export async function getBookingDetail(req, res) {
       })),
       groupSchedule: groupBookings.map((groupBooking) => ({
         id: groupBooking.id,
+        courtId: groupBooking.courtId,
         date: groupBooking.date,
         time: groupBooking.time,
         duration: groupBooking.duration,
@@ -340,6 +289,7 @@ export async function getBookingDetail(req, res) {
         status: groupBooking.status,
         paymentStatus: groupBooking.paymentStatus,
       })),
+      history: serializeMany(history),
     });
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -373,7 +323,6 @@ export async function getRefundRequests(_req, res) {
         : matchingPayments.filter((payment) => payment.status === "success");
       const refundPayments = relevantPayments.map((payment) => ({
         paymentCode: payment.paymentCode,
-        bookingGroupId: payment.bookingGroupId || "",
         transactionCode: payment.transactionCode || "",
         gateway: payment.gateway,
         bankCode: payment.bankCode || "",
@@ -406,7 +355,7 @@ export async function createBooking(req, res) {
       date,
       recurringDates,
       scheduleSegments,
-      scheduleOccurrences,
+      occurrences: explicitOccurrences,
       time,
       duration,
       customer,
@@ -416,12 +365,11 @@ export async function createBooking(req, res) {
       bookingMode,
     } = req.body;
 
-    const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments, scheduleOccurrences });
+    const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments, occurrences: explicitOccurrences });
     const dur = Number(duration) || 1;
-    const sessionDurations = occurrences.map((occurrence) => Number(occurrence.duration ?? dur));
     const numericCourtId = Number(courtId);
     const numericFieldId = Number(fieldId);
-    if (!Number.isFinite(dur) || dur <= 0 || dur > 8 || sessionDurations.some((sessionDuration) => !Number.isFinite(sessionDuration) || sessionDuration <= 0 || sessionDuration > 8)) {
+    if (!Number.isFinite(dur) || dur <= 0 || dur > 8) {
       return res.status(400).json({ message: "Thời lượng đặt sân không hợp lệ" });
     }
     const elapsedOccurrence = pastOccurrence(occurrences);
@@ -453,9 +401,9 @@ export async function createBooking(req, res) {
 
     const open = toMin(selectedField.openTime || "06:00");
     const close = toMin(selectedField.closeTime || "22:00");
-    for (const [index, occurrence] of occurrences.entries()) {
+    for (const occurrence of occurrences) {
       const start = toMin(occurrence.time);
-      if (!validTime(occurrence.time) || start < open || start + sessionDurations[index] * 60 > close) {
+      if (!validTime(occurrence.time) || start < open || start + dur * 60 > close) {
         return res.status(400).json({
           message: `Khung giờ ngày ${occurrence.date} phải nằm trong giờ hoạt động ${selectedField.openTime}–${selectedField.closeTime}`,
         });
@@ -465,11 +413,7 @@ export async function createBooking(req, res) {
     const normalizedServices = sanitizeServices(services);
     const servicesTotal = normalizedServices.reduce((sum, service) => sum + service.price * service.quantity, 0);
     const hourlyRate = reservableCourts.reduce((sum, court) => sum + Number(court.price || 0), 0);
-    const serviceShares = occurrences.map((_occurrence, index) => splitAmount(servicesTotal, occurrences.length, index));
-    const sessionGrossTotals = occurrences.map((_occurrence, index) =>
-      Math.round(hourlyRate * sessionDurations[index] + serviceShares[index])
-    );
-    const grossTotal = sessionGrossTotals.reduce((sum, sessionTotal) => sum + sessionTotal, 0);
+    const grossTotal = Math.round(hourlyRate * dur * occurrences.length + servicesTotal);
     const normalizedVoucherCode = normalizeVoucherCode(voucherCode);
     let voucher = null;
     let calculatedDiscount = 0;
@@ -483,8 +427,6 @@ export async function createBooking(req, res) {
       calculatedDiscount = calculateVoucherDiscount(voucher, grossTotal);
     }
     const calculatedTotal = Math.max(0, grossTotal - calculatedDiscount);
-    const sessionDiscounts = allocateAmountByWeights(calculatedDiscount, sessionGrossTotals);
-    const sessionTotals = sessionGrossTotals.map((sessionTotal, index) => sessionTotal - sessionDiscounts[index]);
 
     const suppliedCustomer = customer && typeof customer === "object" ? customer : {};
     const requesterIsStaff = isStaff(req.user);
@@ -514,7 +456,7 @@ export async function createBooking(req, res) {
     const reservedCourtIds = reservableCourts.map((court) => Number(court.id));
     const locks = occurrences.flatMap((occurrence, index) =>
       reservedCourtIds.flatMap((reservedCourtId) =>
-        slotTimes(occurrence.time, sessionDurations[index]).map((slot) => ({
+        slotTimes(occurrence.time, dur).map((slot) => ({
           bookingId: bookingIds[index],
           courtId: reservedCourtId,
           date: occurrence.date,
@@ -557,8 +499,8 @@ export async function createBooking(req, res) {
           court: courtLabel,
           date: occurrence.date,
           time: occurrence.time,
-          duration: sessionDurations[index],
-          total: sessionTotals[index],
+          duration: dur,
+          total: splitAmount(calculatedTotal, occurrences.length, index),
           customer: bookingCustomer,
           services: normalizedServices,
           paymentMethod: normalizedPaymentMethod,
@@ -567,7 +509,7 @@ export async function createBooking(req, res) {
           paymentExpiresAt,
           status: isComplimentaryBooking ? "confirmed" : "pending",
           voucherCode: normalizedVoucherCode,
-          discount: sessionDiscounts[index],
+          discount: splitAmount(calculatedDiscount, occurrences.length, index),
           createdBy: Number(req.user.id),
           createdAt: new Date().toISOString(),
         });
@@ -585,13 +527,28 @@ export async function createBooking(req, res) {
         status: isComplimentaryBooking ? "confirmed" : "pending",
         paymentExpiresAt,
         userId: bookingCustomer.userId || null,
+        createdBy: Number(req.user.id),
+        paymentMethod: normalizedPaymentMethod,
+        discountAmount: calculatedDiscount,
         voucherCode: normalizedVoucherCode,
         voucherClaimed: false,
         voucherUsageReleased: false,
       });
+      await BookingHistory.insertMany(occurrences.map((occurrence, index) => ({
+        bookingId: bookingIds[index],
+        bookingGroupId,
+        changeType: "create",
+        changedBy: Number(req.user.id),
+        source: req.user.role === "manager" || req.user.role === "admin" ? req.user.role : "user",
+        reason: "booking_created",
+        fieldBefore: null,
+        fieldAfter: { fieldId: numericFieldId, courtId: numericCourtId, date: occurrence.date, time: occurrence.time, duration: dur, total: splitAmount(calculatedTotal, occurrences.length, index) },
+        statusAfter: isComplimentaryBooking ? "confirmed" : "pending",
+      })));
     } catch (error) {
       await BookingGroup.deleteOne({ id: bookingGroupId });
       await Booking.deleteMany({ id: { $in: createdBookingIds } });
+      await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
       await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
       throw error;
     }
@@ -605,6 +562,7 @@ export async function createBooking(req, res) {
       if (!claimedVoucher) {
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Voucher vừa hết lượt hoặc không còn hiệu lực" });
       }
@@ -616,26 +574,10 @@ export async function createBooking(req, res) {
         await Voucher.updateOne({ id: voucher.id, used: { $gt: 0 } }, {$inc: { used: -1 } });
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Không thể ghi nhận lượt sử dụng voucher" });
       }
-    }
-
-    if (normalizedPaymentMethod === "cash" && calculatedTotal > 0) {
-      queueCashBookingEmail({
-        ...serialize(firstBooking),
-        groupTotal: calculatedTotal,
-        groupSize: occurrences.length,
-        schedule: occurrences.map((occurrence, index) => ({
-          id: bookingIds[index],
-          fieldName: selectedField.name,
-          court: courtLabel,
-          date: occurrence.date,
-          time: occurrence.time,
-          duration: sessionDurations[index],
-          total: sessionTotals[index],
-        })),
-      });
     }
 
     return res.status(201).json({
@@ -649,110 +591,6 @@ export async function createBooking(req, res) {
     });
   } catch (e) {
     return res.status(400).json({ message: e.message });
-  }
-}
-
-export async function extendBooking(req, res) {
-  try {
-    await expirePendingPayments();
-    const id = Number(req.params.id);
-    const booking = await Booking.findOne({ id });
-    if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
-    if (!canAccessBooking(req.user, booking)) {
-      return res.status(403).json({ message: "Bạn không có quyền gia hạn đơn này" });
-    }
-    if (!["pending", "confirmed"].includes(booking.status)) {
-      return res.status(400).json({ message: "Chỉ có thể gia hạn đơn chưa hủy hoặc hoàn thành" });
-    }
-    if (Number(booking.groupSize || 1) > 1) {
-      return res.status(400).json({ message: "Không thể gia hạn lịch đặt nhiều buổi" });
-    }
-
-    const duration = Number(booking.duration || 1);
-    if (!Number.isFinite(duration) || duration <= 0 || duration >= 8) {
-      return res.status(400).json({ message: "Thời lượng đặt sân đã đạt giới hạn gia hạn" });
-    }
-    const extensionTimeMinutes = toMin(booking.time) + duration * 60;
-    const extensionTime = `${String(Math.floor(extensionTimeMinutes / 60)).padStart(2, "0")}:${String(extensionTimeMinutes % 60).padStart(2, "0")}`;
-    if (!validTime(extensionTime) || vietnamBookingStartMs(booking.date, extensionTime) <= Date.now()) {
-      return res.status(400).json({ message: "Khung giờ thuê thêm đã qua hoặc không hợp lệ" });
-    }
-
-    const field = await Field.findOne({ id: booking.fieldId });
-    const reservedCourtIds = booking.reservedCourtIds?.length
-      ? [...new Set(booking.reservedCourtIds.map(Number))]
-      : [Number(booking.courtId)];
-    const courts = await Court.find({
-      id: { $in: reservedCourtIds },
-      fieldId: booking.fieldId,
-      status: "active",
-    });
-    if (!field || field.status !== "active" || courts.length !== reservedCourtIds.length || courts.some((court) => !isBasketballCourt(court))) {
-      return res.status(400).json({ message: "Sân hoặc cơ sở hiện không sẵn sàng để gia hạn" });
-    }
-    const close = toMin(field.closeTime || "22:00");
-    if (extensionTimeMinutes + 60 > close) {
-      return res.status(400).json({ message: `Khung giờ phải nằm trong giờ hoạt động ${field.openTime}–${field.closeTime}` });
-    }
-
-    const extensionSlots = slotTimes(extensionTime, 1);
-    const insertedLockIds = [];
-    try {
-      for (const courtId of reservedCourtIds) {
-        for (const time of extensionSlots) {
-          const lock = await BookingSlot.create({ bookingId: id, courtId, date: booking.date, time });
-          insertedLockIds.push(lock._id);
-        }
-      }
-    } catch (error) {
-      if (insertedLockIds.length) await BookingSlot.deleteMany({ _id: { $in: insertedLockIds } });
-      if (error?.code === 11000) {
-        return res.status(409).json({ message: "Khung giờ thuê thêm vừa được người khác đặt" });
-      }
-      throw error;
-    }
-
-    const extensionPrice = courts.reduce((sum, court) => sum + Number(court.price || 0), 0);
-    const nextTotal = Number(booking.total || 0) + extensionPrice;
-    const paidAmount = Number(booking.paidAmount) > 0
-      ? Number(booking.paidAmount)
-      : booking.paymentStatus === "paid"
-        ? Number(booking.total || 0)
-        : booking.paymentStatus === "deposit_paid"
-          ? Math.round(Number(booking.total || 0) * 0.3)
-          : 0;
-    const paymentStatus = paidAmount >= nextTotal ? "paid" : paidAmount > 0 ? "deposit_paid" : "unpaid";
-    const updated = await Booking.findOneAndUpdate(
-      { id, duration: booking.duration, total: booking.total, status: booking.status },
-      {
-        $set: {
-          duration: duration + 1,
-          extensionHours: Number(booking.extensionHours || 0) + 1,
-          total: nextTotal,
-          groupTotal: Number(booking.groupTotal || booking.total || 0) + extensionPrice,
-          paidAmount,
-          paymentStatus,
-        },
-      },
-      { new: true }
-    );
-    if (!updated) {
-      await BookingSlot.deleteMany({ _id: { $in: insertedLockIds } });
-      return res.status(409).json({ message: "Đơn vừa thay đổi. Vui lòng tải lại và thử lại." });
-    }
-
-    if (booking.bookingGroupId) {
-      await BookingGroup.updateOne(
-        { id: booking.bookingGroupId },
-        {
-          $inc: { total: extensionPrice },
-          $set: { paidAmount, paymentStatus },
-        }
-      );
-    }
-    return res.json(serialize(updated));
-  } catch (error) {
-    return res.status(400).json({ message: error.message });
   }
 }
 
@@ -782,95 +620,10 @@ export async function updateBooking(req, res) {
       { new: true, runValidators: true }
     );
 
+    await appendBookingHistory({ booking: b, changeType: "update", user: req.user, reason: "customer_contact_updated", before: { customer: current.customer }, after: { customer: b.customer }, statusBefore: current.status, statusAfter: b.status });
     return res.json(serialize(b));
   } catch (e) {
     return res.status(400).json({ message: e.message });
-  }
-}
-
-export async function rescheduleBooking(req, res) {
-  try {
-    await expirePendingPayments();
-    const id = Number(req.params.id);
-    const booking = await Booking.findOne({ id });
-    if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
-    if (!canAccessBooking(req.user, booking)) {
-      return res.status(403).json({ message: "Bạn không có quyền đổi lịch đơn này" });
-    }
-    if (!["pending", "confirmed"].includes(booking.status)) {
-      return res.status(400).json({ message: "Chỉ có thể đổi lịch cho buổi chưa hủy hoặc hoàn thành" });
-    }
-
-    const date = String(req.body.date || "");
-    const time = String(req.body.time || "");
-    const parsedDate = new Date(`${date}T00:00:00Z`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date ||
-        !validTime(time) || Number(time.slice(-2)) % 30 !== 0) {
-      return res.status(400).json({ message: "Ngày hoặc giờ mới không hợp lệ" });
-    }
-    if (pastOccurrence([{ date, time }])) {
-      return res.status(400).json({ message: "Khung giờ mới đã qua, vui lòng chọn thời gian khác" });
-    }
-    if (date === booking.date && time === booking.time) return res.json(serialize(booking));
-
-    const field = await Field.findOne({ id: booking.fieldId });
-    const reservedCourtIds = booking.reservedCourtIds?.length
-      ? [...new Set(booking.reservedCourtIds.map(Number))]
-      : [Number(booking.courtId)];
-    const courts = await Court.find({
-      id: { $in: reservedCourtIds },
-      fieldId: booking.fieldId,
-      status: "active",
-    });
-    if (!field || field.status !== "active" || courts.length !== reservedCourtIds.length || courts.some((court) => !isBasketballCourt(court))) {
-      return res.status(400).json({ message: "Sân hoặc cơ sở hiện không sẵn sàng để đổi lịch" });
-    }
-    const start = toMin(time);
-    const close = toMin(field.closeTime || "22:00");
-    if (start < toMin(field.openTime || "06:00") || start + Number(booking.duration || 1) * 60 > close) {
-      return res.status(400).json({ message: `Khung giờ phải nằm trong giờ hoạt động ${field.openTime}–${field.closeTime}` });
-    }
-
-    const targetLocks = reservedCourtIds.flatMap((courtId) =>
-      slotTimes(time, booking.duration || 1).map((slot) => ({ courtId, date, time: slot }))
-    );
-    const lockKey = (lock) => `${lock.courtId}|${lock.date}|${lock.time}`;
-    const existingLocks = await BookingSlot.find({ bookingId: id });
-    const targetKeys = new Set(targetLocks.map(lockKey));
-    const existingKeys = new Set(existingLocks.map(lockKey));
-    const missingLocks = targetLocks.filter((lock) => !existingKeys.has(lockKey(lock)));
-    const insertedIds = [];
-
-    try {
-      for (const lock of missingLocks) {
-        const created = await BookingSlot.create({ bookingId: id, ...lock });
-        insertedIds.push(created._id);
-      }
-    } catch (error) {
-      if (insertedIds.length) await BookingSlot.deleteMany({ _id: { $in: insertedIds } });
-      if (error?.code === 11000) {
-        return res.status(409).json({ message: "Một hoặc nhiều khung giờ mới vừa được người khác đặt" });
-      }
-      throw error;
-    }
-
-    const updated = await Booking.findOneAndUpdate(
-      { id, date: booking.date, time: booking.time, status: booking.status },
-      { $set: { date, time } },
-      { new: true }
-    );
-    if (!updated) {
-      if (insertedIds.length) await BookingSlot.deleteMany({ _id: { $in: insertedIds } });
-      return res.status(409).json({ message: "Booking vừa thay đổi. Vui lòng tải lại và thử lại." });
-    }
-
-    const obsoleteIds = existingLocks
-      .filter((lock) => !targetKeys.has(lockKey(lock)))
-      .map((lock) => lock._id);
-    if (obsoleteIds.length) await BookingSlot.deleteMany({ _id: { $in: obsoleteIds } });
-    return res.json(serialize(updated));
-  } catch (error) {
-    return res.status(400).json({ message: error.message });
   }
 }
 
@@ -884,6 +637,9 @@ export async function cancelBooking(req, res) {
     }
     if (["cancelled", "completed"].includes(booking.status)) {
       return res.status(400).json({ message: "Đơn này không thể hủy" });
+    }
+    if (vietnamBookingStartMs(booking.date, booking.time) <= Date.now()) {
+      return res.status(409).json({ message: "Không thể hủy buổi đã qua hoặc đang diễn ra" });
     }
 
     const policy = cancellationPolicy(booking, req.user, String(req.body.cancellationType || ""));
@@ -903,11 +659,24 @@ export async function cancelBooking(req, res) {
         refundReason: policy.reason,
         cancellationReason: policy.reason,
         cancelledByRole: req.user?.role || "user",
+        cancelledAt: new Date(),
       } },
       { new: true }
     );
     await BookingSlot.deleteMany({ bookingId: id });
-    await refreshBookingGroupStatus(updated.bookingGroupId);
+    await BookingAdjustment.updateMany({ bookingId: id, status: "pending_payment" }, { $set: { status: "cancelled", failureReason: "booking_cancelled" } });
+    const updatedGroup = await syncBookingGroup(booking.bookingGroupId);
+    if (policy.refundAmount > 0 && booking.bookingGroupId) {
+      await BookingGroup.updateOne({ id: booking.bookingGroupId }, { $inc: { refundAmount: policy.refundAmount }, $set: { paymentStatus: "partially_refunded" } });
+    }
+    if (updatedGroup?.status === "cancelled" && updatedGroup.paymentStatus === "unpaid") {
+      await releaseVoucherUsageForGroups([booking.bookingGroupId]);
+    }
+    await appendBookingHistory({
+      booking: updated, changeType: "cancel", user: req.user, reason: policy.reason,
+      before: { status: booking.status }, after: { status: updated.status, refundAmount: policy.refundAmount },
+      paymentDelta: -policy.refundAmount, statusBefore: booking.status, statusAfter: updated.status,
+    });
 
     if (updated.customer?.email && policy.refundAmount > 0) {
       const destination = policy.staffCancellation
@@ -931,8 +700,9 @@ export async function completeRefund(req, res) {
     const booking = await Booking.findOne({ id });
     if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
     const isDuplicatePaymentRefund = booking.refundReason === "duplicate_or_expired_payment";
+    const isRescheduleRefund = booking.refundReason === "reschedule_price_difference";
     if (booking.refundStatus !== "pending" ||
-        (booking.status !== "cancelled" && !isDuplicatePaymentRefund)) {
+        (booking.status !== "cancelled" && !isDuplicatePaymentRefund && !isRescheduleRefund)) {
       return res.status(400).json({ message: "Đơn không có yêu cầu hoàn tiền đang chờ" });
     }
     const completedPaymentStatus = Number(booking.refundAmount) > 0 && Number(booking.refundAmount) < refundableAmount(booking)
@@ -951,12 +721,16 @@ export async function completeRefund(req, res) {
       { bookingId: id, paymentCode: `REFUND_${id}`, paymentKind: "refund", gateway: "manual", amount: updated.refundAmount, status: "success", paidAt: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    if (isRescheduleRefund) {
+      await BookingAdjustment.updateMany({ bookingId: id, status: "refund_pending" }, { $set: { status: "refunded" } });
+    }
     if (isDuplicatePaymentRefund) {
       await Payment.updateMany(
         { bookingId: id, status: "refund_pending" },
         { $set: { status: "refunded" } }
       );
     }
+    await appendBookingHistory({ booking: updated, changeType: "refund", user: req.user, reason: updated.refundReason, before: { refundStatus: booking.refundStatus }, after: { refundStatus: updated.refundStatus, refundAmount: updated.refundAmount }, paymentDelta: -Number(updated.refundAmount || 0), statusBefore: booking.status, statusAfter: updated.status });
     const notificationId = await nextId("notifications");
     await Notification.findOneAndUpdate(
       { bookingId: id, type: "refund_completed" },

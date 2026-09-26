@@ -1,11 +1,11 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
-  CalendarDays, Clock, MapPin, CheckCircle2, Loader2, Wallet, QrCode, Tag, ChevronRight, ShieldCheck, Sparkles, ArrowLeft, Plus, Trash2, Pencil, X
+  CalendarDays, Clock, MapPin, CheckCircle2, Loader2, Wallet, QrCode, Tag, ChevronRight, ShieldCheck, Sparkles, ArrowLeft, Plus, Trash2
 } from "lucide-react";
 import {
-  api, Court, Field, formatCurrency, getBookedSlots, getBookingsByDate, invalidateApiCache, isSlotConflict,
+  api, Court, Field, formatCurrency, getBookedSlots, invalidateApiCache, isSlotConflict,
 } from "../lib/api";
 import { getUser } from "../lib/auth";
 import { isPastVietnamSlot, vietnamTodayIso } from "../lib/bookingTime";
@@ -15,18 +15,19 @@ const DURATIONS = [
   { label: "1.5 giờ", value: 1.5 },
   { label: "2 giờ", value: 2 },
 ];
-type RecurrenceFrequency = "daily" | "weekly";
 type ScheduleSegment = { id: number; startDate: string; endDate: string; time: string };
 type BookingMode = "court" | "full_field";
+type RecurrencePreset = "single" | "weekly" | "monthly";
+type ScheduleOccurrence = { date: string; time: string };
+type AvailabilityConflict = ScheduleOccurrence & { suggestions: string[] };
 
 type BookingDraft = {
   fieldId?: number;
   courtId?: number;
   date?: string;
   recurringDates?: string[];
-  scheduleSegments?: Array<Omit<ScheduleSegment, "id"> & { frequency?: RecurrenceFrequency }>;
-  scheduleEdits?: Record<string, { date: string; time: string; duration?: number }>;
-  scheduleOccurrences?: Array<{ date: string; time: string; duration?: number }>;
+  occurrences?: ScheduleOccurrence[];
+  scheduleSegments?: Array<Omit<ScheduleSegment, "id">>;
   bookingMode?: BookingMode;
   time?: string;
   duration?: number;
@@ -43,6 +44,8 @@ const addDaysIso = (value: string, days: number): string => {
   next.setUTCDate(next.getUTCDate() + days);
   return next.toISOString().slice(0, 10);
 };
+
+const monthPlanEndIso = (value: string): string => addDaysIso(value, 29);
 
 const getEndTime = (startTime: string, dur: number): number => {
   const [hours, minutes] = startTime.split(":").map(Number);
@@ -74,8 +77,8 @@ export default function Booking() {
     bookingDraft?.courtId || (courtIdParam ? Number(courtIdParam) : null)
   );
   const [bookingMode, setBookingMode] = useState<BookingMode>(bookingDraft?.bookingMode || "court");
-  const [date, setDate] = useState(bookingDraft?.date || dateParam || "");
-  const [time, setTime] = useState(bookingDraft?.time || timeParam || "");
+  const [date, setDate] = useState(bookingDraft?.occurrences?.[0]?.date || bookingDraft?.date || dateParam || "");
+  const [time, setTime] = useState(bookingDraft?.occurrences?.[0]?.time || bookingDraft?.time || timeParam || "");
   const [duration, setDuration] = useState(Number(bookingDraft?.duration || 1));
   const [customer, setCustomer] = useState({
     fullName: bookingDraft?.customer?.fullName || getUser()?.fullName || "",
@@ -92,18 +95,17 @@ export default function Booking() {
     return () => window.clearInterval(interval);
   }, []);
 
+  const [recurrencePreset, setRecurrencePreset] = useState<RecurrencePreset>(bookingDraft?.occurrences?.length ? "single" : bookingDraft?.recurringDates?.length ? "weekly" : "single");
   const [endDate, setEndDate] = useState(
-    bookingDraft?.scheduleSegments?.[0]?.endDate || (bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : "")
+    bookingDraft?.occurrences?.length ? "" : bookingDraft?.scheduleSegments?.[0]?.endDate || (bookingDraft?.recurringDates?.length ? bookingDraft.recurringDates[bookingDraft.recurringDates.length - 1] || "" : "")
   );
-  const [frequency, setFrequency] = useState<RecurrenceFrequency>(bookingDraft?.scheduleSegments?.[0]?.frequency || "daily");
-  const [scheduleEdits, setScheduleEdits] = useState<Record<string, { date: string; time: string; duration?: number }>>(bookingDraft?.scheduleEdits || {});
-  const [editingScheduleOccurrence, setEditingScheduleOccurrence] = useState<{ sourceKey: string; date: string; time: string; duration: number } | null>(null);
-  const [showAllScheduleOccurrences, setShowAllScheduleOccurrences] = useState(false);
-  const [editingDayBookings, setEditingDayBookings] = useState<Awaited<ReturnType<typeof getBookingsByDate>>>([]);
-  const [editingDayLoading, setEditingDayLoading] = useState(false);
-  const [editingDayError, setEditingDayError] = useState("");
+  const [occurrenceOverrides, setOccurrenceOverrides] = useState<Record<string, string | null>>({});
+  const [availabilityConflicts, setAvailabilityConflicts] = useState<AvailabilityConflict[]>([]);
+  const [availabilityChecked, setAvailabilityChecked] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const conflictSummaryRef = useRef<HTMLDivElement>(null);
   const [schedulePeriods, setSchedulePeriods] = useState<ScheduleSegment[]>(() =>
-    (bookingDraft?.scheduleSegments || []).slice(1).map((segment, index) => ({
+    (bookingDraft?.occurrences?.length ? bookingDraft.occurrences.slice(1).map((occurrence) => ({ startDate: occurrence.date, endDate: occurrence.date, time: occurrence.time })) : (bookingDraft?.scheduleSegments || []).slice(1)).map((segment, index) => ({
       id: index + 1,
       startDate: segment.startDate || "",
       endDate: segment.endDate || segment.startDate || "",
@@ -128,23 +130,6 @@ export default function Booking() {
     return slots;
   }, [field?.openTime, field?.closeTime]);
 
-  useEffect(() => {
-    const targetDate = editingScheduleOccurrence?.date;
-    if (!targetDate) return;
-    let active = true;
-    setEditingDayLoading(true);
-    setEditingDayError("");
-    getBookingsByDate(targetDate, true)
-      .then((bookings) => { if (active) setEditingDayBookings(bookings); })
-      .catch(() => {
-        if (!active) return;
-        setEditingDayBookings([]);
-        setEditingDayError("Không tải được lịch trống. Vui lòng thử lại.");
-      })
-      .finally(() => { if (active) setEditingDayLoading(false); });
-    return () => { active = false; };
-  }, [editingScheduleOccurrence?.date]);
-
   // Kiểm tra thời lượng thuê có vượt quá giờ đóng cửa của cơ sở đã chọn.
   const isDurationValid = useCallback((dur: number): boolean => {
     if (!time) return true;
@@ -162,16 +147,17 @@ export default function Booking() {
   }, [time, duration, isDurationValid]);
 
   const scheduleSegments = useMemo(() => {
-    const segments = date ? [{ startDate: date, endDate: endDate || date, time, frequency }] : [];
+    const presetEndDate = recurrencePreset === "single" ? date : recurrencePreset === "monthly" ? (date ? monthPlanEndIso(date) : "") : endDate || date;
+    const segments = date ? [{ startDate: date, endDate: presetEndDate, time }] : [];
     schedulePeriods.forEach((period) => {
       if (period.startDate && period.endDate && period.time) {
-        segments.push({ startDate: period.startDate, endDate: period.endDate, time: period.time, frequency });
+        segments.push({ startDate: period.startDate, endDate: period.endDate, time: period.time });
       }
     });
     return segments;
-  }, [date, endDate, time, frequency, schedulePeriods]);
+  }, [date, endDate, time, schedulePeriods, recurrencePreset]);
 
-  const generatedOccurrences = useMemo(() => {
+  const scheduledOccurrences = useMemo(() => {
     const seen = new Set<string>();
     return scheduleSegments.flatMap((segment) => {
       if (!segment.startDate || !segment.endDate || segment.endDate < segment.startDate || !segment.time) return [];
@@ -185,77 +171,28 @@ export default function Booking() {
           seen.add(key);
           dates.push(occurrence);
         }
-        current.setUTCDate(current.getUTCDate() + (segment.frequency === "daily" ? 1 : 7));
+        current.setUTCDate(current.getUTCDate() + 7);
       }
       return dates;
     });
   }, [scheduleSegments]);
 
-  const scheduledOccurrences = useMemo(() => generatedOccurrences.map((occurrence) => {
-    const sourceKey = `${occurrence.date}|${occurrence.time}`;
-    const edit = scheduleEdits[sourceKey];
-    return {
-      ...occurrence,
-      sourceKey,
-      date: edit?.date || occurrence.date,
-      time: edit?.time || occurrence.time,
-      duration: edit?.duration ?? duration,
-    };
-  }), [generatedOccurrences, scheduleEdits, duration]);
-
-  const visibleScheduleOccurrences = showAllScheduleOccurrences
-    ? scheduledOccurrences
-    : scheduledOccurrences.slice(0, 12);
+  const selectedOccurrences = useMemo(() => scheduledOccurrences.flatMap((occurrence) => {
+    const override = occurrenceOverrides[occurrence.date + "|" + occurrence.time];
+    if (override === null) return [];
+    return [{ ...occurrence, time: override || occurrence.time }];
+  }), [scheduledOccurrences, occurrenceOverrides]);
 
   const recurringDates = useMemo(
-    () => scheduledOccurrences.map((occurrence) => occurrence.date),
-    [scheduledOccurrences]
+    () => selectedOccurrences.map((occurrence) => occurrence.date),
+    [selectedOccurrences]
   );
 
-  const openScheduleOccurrenceEditor = (occurrence: (typeof scheduledOccurrences)[number]) => {
-    setEditingScheduleOccurrence({ sourceKey: occurrence.sourceKey, date: occurrence.date, time: occurrence.time, duration: occurrence.duration });
-    setEditingDayLoading(true);
-    setEditingDayError("");
-  };
-
-  const saveScheduleOccurrenceEdit = () => {
-    if (!editingScheduleOccurrence?.date || !editingScheduleOccurrence.time) {
-      toast.error("Vui lòng chọn ngày và giờ cho buổi này");
-      return;
-    }
-    if (isPastVietnamSlot(editingScheduleOccurrence.date, editingScheduleOccurrence.time, clockNow)) {
-      toast.error("Buổi mới không thể nằm trong quá khứ");
-      return;
-    }
-    if (editingDayLoading || editingDayError || !editingOccurrenceSlots.some((slot) => slot.time === editingScheduleOccurrence.time && !slot.disabled)) {
-      toast.error("Khung giờ này đã kín hoặc chưa kiểm tra được lịch trống");
-      return;
-    }
-    const overlapsAnotherSession = scheduledOccurrences.some((occurrence) =>
-      occurrence.sourceKey !== editingScheduleOccurrence.sourceKey &&
-      occurrence.date === editingScheduleOccurrence.date &&
-      isSlotConflict(occurrence.time, occurrence.duration, editingScheduleOccurrence.time, editingScheduleOccurrence.duration)
-    );
-    if (overlapsAnotherSession) {
-      toast.error("Buổi này bị trùng hoặc chồng giờ với một buổi khác trong lịch");
-      return;
-    }
-    const [originalDate, originalTime] = editingScheduleOccurrence.sourceKey.split("|");
-    setScheduleEdits((current) => {
-      const next = { ...current };
-      if (editingScheduleOccurrence.date === originalDate && editingScheduleOccurrence.time === originalTime && editingScheduleOccurrence.duration === duration) {
-        delete next[editingScheduleOccurrence.sourceKey];
-      } else {
-        next[editingScheduleOccurrence.sourceKey] = {
-          date: editingScheduleOccurrence.date,
-          time: editingScheduleOccurrence.time,
-          duration: editingScheduleOccurrence.duration,
-        };
-      }
-      return next;
-    });
-    setEditingScheduleOccurrence(null);
-  };
+  useEffect(() => {
+    setOccurrenceOverrides({});
+    setAvailabilityConflicts([]);
+    setAvailabilityChecked(false);
+  }, [courtId, date, time, duration, bookingMode, recurrencePreset]);
 
   const addSchedulePeriod = () => {
     if (!date || !time) {
@@ -293,7 +230,7 @@ export default function Booking() {
         setField(fRes.data);
         setCourts(activeCourts);
         setCourtId(nextCourtId);
-        setTime(bookingDraft?.time || timeParam || "");
+        setTime(bookingDraft?.occurrences?.[0]?.time || bookingDraft?.time || timeParam || "");
       } catch {
         setField(null);
         setCourts([]);
@@ -304,41 +241,9 @@ export default function Booking() {
         setLoadingData(false);
       }
     })();
-  }, [fieldIdParam, courtIdParam, bookingDraft?.time, timeParam]);
+  }, [fieldIdParam, courtIdParam, bookingDraft?.occurrences, bookingDraft?.time, timeParam]);
 
   const selectedCourt = courts.find((c) => c.id === courtId);
-
-  const editingOccurrenceSlots = useMemo(() => {
-    if (!editingScheduleOccurrence || !selectedCourt) return [];
-    const targetCourtIds = bookingMode === "full_field" ? courts.map((court) => court.id) : [selectedCourt.id];
-    const [closeHour, closeMinute] = (field?.closeTime || "22:00").split(":").map(Number);
-    const closeAt = closeHour * 60 + closeMinute;
-    const editingDuration = editingScheduleOccurrence.duration;
-    const durationMinutes = editingDuration * 60;
-    return timeSlots.map((slot) => {
-      const [hour, minute] = slot.split(":").map(Number);
-      const startsAt = hour * 60 + minute;
-      const overlapsBooking = editingDayBookings.some((booking) => {
-        if (booking.status === "cancelled") return false;
-        const sharesReservedCourt = targetCourtIds.some((targetCourtId) =>
-          booking.courtId === targetCourtId || booking.reservedCourtIds?.includes(targetCourtId)
-        );
-        return sharesReservedCourt && isSlotConflict(booking.time, booking.duration || 1, slot, editingDuration);
-      });
-      const overlapsScheduleSession = scheduledOccurrences.some((occurrence) =>
-        occurrence.sourceKey !== editingScheduleOccurrence.sourceKey &&
-        occurrence.date === editingScheduleOccurrence.date &&
-        isSlotConflict(occurrence.time, occurrence.duration, slot, editingDuration)
-      );
-      return {
-        time: slot,
-        endTime: `${String(Math.floor((startsAt + durationMinutes) / 60)).padStart(2, "0")}:${String((startsAt + durationMinutes) % 60).padStart(2, "0")}`,
-        disabled: startsAt + durationMinutes > closeAt ||
-          isPastVietnamSlot(editingScheduleOccurrence.date, slot, clockNow) ||
-          overlapsBooking || overlapsScheduleSession,
-      };
-    });
-  }, [editingScheduleOccurrence, selectedCourt, bookingMode, courts, field?.closeTime, timeSlots, editingDayBookings, scheduledOccurrences, clockNow]);
 
   const refreshBookedSlots = useCallback(async (force = false) => {
     if (!courtId || !date) return;
@@ -401,8 +306,7 @@ export default function Booking() {
   const courtPrice = bookingMode === "full_field"
     ? courts.reduce((sum, court) => sum + Number(court.price || 0), 0)
     : selectedCourt?.price ?? field?.pricePerHour ?? 0;
-  const scheduledHours = scheduledOccurrences.reduce((sum, occurrence) => sum + occurrence.duration, 0);
-  const subTotal = courtPrice * scheduledHours + servicesTotal;
+  const subTotal = courtPrice * duration * selectedOccurrences.length + servicesTotal;
   const normalizedVoucherInput = voucherCode.trim().toUpperCase();
   const activeVoucher = appliedVoucher &&
     normalizedVoucherInput === appliedVoucher.code &&
@@ -450,7 +354,48 @@ export default function Booking() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const advanceStep = () => {
+  const updateOccurrenceTime = (conflict: AvailabilityConflict, nextTime: string | null) => {
+    const base = scheduledOccurrences.find((occurrence) => {
+      const key = occurrence.date + "|" + occurrence.time;
+      return occurrence.date === conflict.date && (occurrenceOverrides[key] || occurrence.time) === conflict.time;
+    });
+    if (!base) return;
+    const key = base.date + "|" + base.time;
+    setOccurrenceOverrides((current) => ({ ...current, [key]: nextTime }));
+    setAvailabilityConflicts((current) => current.filter((item) => !(item.date === conflict.date && item.time === conflict.time)));
+    setAvailabilityChecked(false);
+  };
+
+  const checkScheduleAvailability = async (): Promise<boolean> => {
+    if (!selectedCourt || !selectedOccurrences.length) return false;
+    setCheckingAvailability(true);
+    try {
+      const response = await api.post<{ available: boolean; conflicts: AvailabilityConflict[] }>("/bookings/check-availability", {
+        courtId: selectedCourt.id,
+        bookingMode,
+        duration,
+        occurrences: selectedOccurrences,
+      });
+      setAvailabilityConflicts(response.data.conflicts);
+      setAvailabilityChecked(true);
+      if (!response.data.available) {
+        toast.error("Có " + response.data.conflicts.length + " buổi bị trùng. Hãy chọn giờ khác hoặc bỏ buổi đó.");
+        window.requestAnimationFrame(() => conflictSummaryRef.current?.focus());
+      } else {
+        toast.success("Tất cả các buổi đang còn trống");
+      }
+      return response.data.available;
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setAvailabilityChecked(false);
+      toast.error(message || "Không thể kiểm tra lịch trống");
+      return false;
+    } finally {
+      setCheckingAvailability(false);
+    }
+  };
+
+  const advanceStep = async () => {
     if (currentStep === 1) {
       if (!selectedCourt || !date || !time) {
         toast.error("Vui lòng chọn sân, ngày và khung giờ trước khi tiếp tục");
@@ -460,11 +405,11 @@ export default function Booking() {
         toast.error("Vui lòng điền đầy đủ và đúng thứ tự ngày cho các giai đoạn lịch");
         return;
       }
-      if (!scheduledOccurrences.length || scheduledOccurrences.length > 60) {
+      if (!selectedOccurrences.length || selectedOccurrences.length > 60) {
         toast.error("Tổng số buổi phải từ 1 đến 60");
         return;
       }
-      const elapsedOccurrence = scheduledOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
+      const elapsedOccurrence = selectedOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
       if (elapsedOccurrence) {
         toast.error("Khung giờ " + elapsedOccurrence.time + " ngày " + elapsedOccurrence.date + " đã qua");
         return;
@@ -473,10 +418,11 @@ export default function Booking() {
         toast.error("Cơ sở cần ít nhất 2 sân con đang hoạt động để bao sân");
         return;
       }
-      if (scheduledOccurrences.some((occurrence) => getEndTime(occurrence.time, occurrence.duration) > closingTime)) {
+      if (!isDurationValid(duration) || scheduleSegments.some((segment) => getEndTime(segment.time, duration) > closingTime) || overlappingBooking(time)) {
         toast.error("Khung giờ hoặc thời lượng đã chọn không còn phù hợp");
         return;
       }
+      if (!(await checkScheduleAvailability())) return;
     }
     if (currentStep === 2) {
       if (!customer.fullName.trim()) {
@@ -506,13 +452,13 @@ export default function Booking() {
       toast.error("Vui lòng chọn giờ đặt sân");
       return;
     }
-    const elapsedOccurrence = scheduledOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
+    const elapsedOccurrence = selectedOccurrences.find((occurrence) => isPastVietnamSlot(occurrence.date, occurrence.time));
     if (elapsedOccurrence) {
       toast.error("Khung giờ " + elapsedOccurrence.time + " ngày " + elapsedOccurrence.date + " đã qua, vui lòng chọn giờ khác");
       return;
     }
-    if (scheduledOccurrences.some((occurrence) => getEndTime(occurrence.time, occurrence.duration) > closingTime)) {
-      toast.error(`Thời lượng của một hoặc nhiều buổi vượt quá giờ đóng cửa (${field.closeTime})`);
+    if (!isDurationValid(duration)) {
+      toast.error(`Thời lượng đặt sân vượt quá giờ đóng cửa (${field.closeTime})`);
       return;
     }
     if (!customer.fullName.trim()) {
@@ -528,27 +474,15 @@ export default function Booking() {
       toast.error("Vui lòng chọn phương thức thanh toán");
       return;
     }
+    if (overlappingBooking(time)) {
+      toast.error("Khung giờ này bị chồng với một ca đã đặt. Vui lòng chỉnh giờ hoặc thời lượng.");
+      return;
+    }
+
     const user = getUser();
     setLoading(true);
 
-    try {
-      const targetCourtIds = bookingMode === "full_field" ? courts.map((court) => court.id) : [selectedCourt.id];
-      for (const occurrence of scheduledOccurrences) {
-        const slots = await getBookingsByDate(occurrence.date, true);
-        const conflict = slots.some((booked) =>
-          booked.status !== "cancelled" &&
-          targetCourtIds.some((targetCourtId) => booked.courtId === targetCourtId || booked.reservedCourtIds?.includes(targetCourtId)) &&
-          isSlotConflict(booked.time, booked.duration, occurrence.time, occurrence.duration)
-        );
-        if (conflict) {
-          toast.error("Khung giờ " + occurrence.time + " ngày " + occurrence.date + " vừa được đặt. Vui lòng chọn giờ khác.");
-          if (occurrence.date === date) setBookedSlots(slots);
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {
-      toast.error("Lỗi khi kiểm tra lịch trống.");
+    if (!(await checkScheduleAvailability())) {
       setLoading(false);
       return;
     }
@@ -564,17 +498,12 @@ export default function Booking() {
       courtId: selectedCourt.id,
       fieldName: field.name,
       court: selectedCourt.name,
-      date,
+      date: selectedOccurrences[0]?.date || date,
       recurringDates,
       scheduleSegments,
-      scheduleEdits,
-      scheduleOccurrences: scheduledOccurrences.map(({ date: occurrenceDate, time: occurrenceTime }) => ({
-        date: occurrenceDate,
-        time: occurrenceTime,
-        duration: scheduledOccurrences.find((occurrence) => occurrence.date === occurrenceDate && occurrence.time === occurrenceTime)?.duration || duration,
-      })),
+      occurrences: selectedOccurrences,
       bookingMode,
-      time,
+      time: selectedOccurrences[0]?.time || time,
       duration,
       total,
       customer: {
@@ -593,19 +522,6 @@ export default function Booking() {
 
     try {
       const res = await api.post("/bookings", payload);
-      const savedSessionCount = Number(res.data.groupSize || 1);
-      if (savedSessionCount !== scheduledOccurrences.length) {
-        const createdBookingIds: number[] = Array.isArray(res.data.bookingIds)
-          ? res.data.bookingIds.map(Number)
-          : [Number(res.data.id)];
-        await Promise.allSettled(createdBookingIds.map((bookingId) => api.post(`/bookings/${bookingId}/cancel`, {})));
-        for (const bookedDate of [...new Set(recurringDates)]) {
-          invalidateApiCache(`bookings:date:${bookedDate}`);
-        }
-        toast.error(`Bạn chọn ${scheduledOccurrences.length} buổi nhưng hệ thống chỉ lưu ${savedSessionCount}. Booking thiếu đã được hủy; vui lòng thử lại.`);
-        setLoading(false);
-        return;
-      }
       for (const bookedDate of [...new Set(recurringDates)]) {
         invalidateApiCache(`bookings:date:${bookedDate}`);
       }
@@ -840,6 +756,38 @@ export default function Booking() {
                 Thời gian đặt sân
               </h3>
 
+              <div className="mb-6">
+                <div className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">Kiểu lịch</div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {([
+                    { id: "single" as RecurrencePreset, label: "Một buổi", description: "Chỉ ngày đã chọn" },
+                    { id: "weekly" as RecurrencePreset, label: "Hàng tuần", description: "Cùng thứ, cùng giờ" },
+                    { id: "monthly" as RecurrencePreset, label: "Trọn tháng", description: "Cùng thứ, cùng giờ trong 30 ngày" },
+                  ]).map((option) => {
+                    const active = recurrencePreset === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setRecurrencePreset(option.id);
+                          setOccurrenceOverrides({});
+                          setAvailabilityConflicts([]);
+                          if (option.id === "single") setEndDate("");
+                          if (option.id === "weekly" && date) setEndDate(addDaysIso(date, 28));
+                          if (option.id === "monthly" && date) setEndDate(monthPlanEndIso(date));
+                        }}
+                        className={"min-h-20 rounded-2xl border p-4 text-left transition " + (active ? "border-amber-400 bg-amber-50 ring-1 ring-amber-200" : "border-slate-200 bg-slate-50 hover:border-amber-300")}
+                        aria-pressed={active}
+                      >
+                        <span className="block text-sm font-black text-slate-950">{option.label}</span>
+                        <span className="mt-1 block text-xs text-slate-500">{option.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -851,7 +799,11 @@ export default function Booking() {
                     min={todayIso}
                     onChange={(e) => {
                       setDate(e.target.value);
-                      if (endDate && e.target.value > endDate) setEndDate("");
+                      setOccurrenceOverrides({});
+                      setAvailabilityConflicts([]);
+                      if (recurrencePreset === "monthly" && e.target.value) setEndDate(monthPlanEndIso(e.target.value));
+                      else if (recurrencePreset === "weekly" && e.target.value) setEndDate(addDaysIso(e.target.value, 28));
+                      else if (endDate && e.target.value > endDate) setEndDate("");
                       setTime("");
                     }}
                     className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
@@ -859,47 +811,24 @@ export default function Booking() {
                   />
                 </div>
 
+{recurrencePreset !== "single" && (
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-                    Đến ngày (bỏ trống nếu chỉ đặt một ngày)
+                    {recurrencePreset === "monthly" ? "Đến hết gói 30 ngày" : "Lặp hàng tuần đến ngày"}
                   </label>
                   <input
                     type="date"
-                    value={endDate}
+                    value={recurrencePreset === "monthly" && date ? monthPlanEndIso(date) : endDate}
                     min={date || todayIso}
                     max={new Date(new Date().setMonth(new Date().getMonth() + 12)).toISOString().slice(0, 10)}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all"
+                    disabled={recurrencePreset === "monthly"}
+                    onChange={(e) => { setEndDate(e.target.value); setOccurrenceOverrides({}); setAvailabilityConflicts([]); }}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-400 text-slate-900 rounded-xl px-4 py-3 text-sm outline-none transition-all disabled:cursor-not-allowed disabled:bg-slate-100"
                     style={{ colorScheme: "light" }}
                   />
                 </div>
+                )}
               </div>
-
-              <fieldset className="mb-6">
-                <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Lặp lại</legend>
-                <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Tần suất đặt lịch">
-                  {([
-                    { value: "daily", label: "Hằng ngày" },
-                    { value: "weekly", label: "Hằng tuần" },
-                  ] as const).map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={frequency === option.value}
-                      onClick={() => setFrequency(option.value)}
-                      className={`min-h-10 rounded-lg px-4 text-sm font-bold transition ${frequency === option.value ? "bg-amber-400 text-slate-950 shadow-sm" : "text-slate-600 hover:text-slate-950"}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  {frequency === "daily"
-                    ? "Đặt một buổi mỗi ngày trong khoảng đã chọn, tính cả ngày bắt đầu và ngày kết thúc."
-                    : "Đặt một buổi mỗi 7 ngày trong khoảng đã chọn."}
-                  {schedulePeriods.length > 0 && " Tần suất này áp dụng cho mọi giai đoạn."}
-                </p>
-              </fieldset>
 
               <div className="mb-6">
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
@@ -1004,28 +933,63 @@ export default function Booking() {
                     </div>
                   ))}
                 </div>
-                {scheduledOccurrences.length > 0 && (
+                {selectedOccurrences.length > 0 && (
                   <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <h5 className="text-sm font-extrabold text-amber-900">Lịch sẽ được giữ ngay khi xác nhận</h5>
-                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-900">{scheduledOccurrences.length} buổi</span>
+                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-900">{selectedOccurrences.length} buổi</span>
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {visibleScheduleOccurrences.map((occurrence, index) => (
-                        <div key={occurrence.sourceKey} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs">
+                      {selectedOccurrences.slice(0, 12).map((occurrence, index) => (
+                        <div key={occurrence.date + "|" + occurrence.time} className="flex items-center justify-between rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs">
                           <span className="font-bold text-slate-500">Buổi {index + 1}</span>
-                          <span className="min-w-0 flex-1 text-right font-extrabold text-slate-900">{occurrence.date.split("-").reverse().join("/")} · {occurrence.time} · {occurrence.duration}h</span>
-                          <button type="button" onClick={() => openScheduleOccurrenceEditor(occurrence)} className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-amber-200 px-2 text-[11px] font-bold text-amber-800 hover:bg-amber-50" aria-label={`Sửa buổi ${index + 1}`}>
-                            <Pencil className="h-3 w-3" /> Sửa
-                          </button>
+                          <span className="font-extrabold text-slate-900">{occurrence.date.split("-").reverse().join("/")} · {occurrence.time}</span>
                         </div>
                       ))}
                     </div>
-                    {scheduledOccurrences.length > 12 && (
-                      <button type="button" onClick={() => setShowAllScheduleOccurrences((current) => !current)} className="mt-3 text-xs font-bold text-amber-900 underline underline-offset-2">
-                        {showAllScheduleOccurrences ? "Thu gọn danh sách" : `Xem và sửa tất cả ${scheduledOccurrences.length} buổi`}
-                      </button>
-                    )}
+                    {selectedOccurrences.length > 12 && <p className="mt-3 text-xs font-semibold text-amber-800">Và {selectedOccurrences.length - 12} buổi tiếp theo trong lịch đã chọn.</p>}
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void checkScheduleAvailability()}
+                    disabled={checkingAvailability || !selectedOccurrences.length}
+                    className="btn-outline min-h-11 rounded-xl px-4 py-2.5 text-sm font-bold disabled:opacity-40"
+                  >
+                    {checkingAvailability ? "Đang kiểm tra..." : "Kiểm tra toàn bộ lịch"}
+                  </button>
+                  {availabilityChecked && availabilityConflicts.length === 0 && (
+                    <span className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-50 px-4 text-sm font-bold text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" /> Tất cả buổi đang còn trống
+                    </span>
+                  )}
+                </div>
+
+                {availabilityConflicts.length > 0 && (
+                  <div ref={conflictSummaryRef} tabIndex={-1} role="alert" aria-labelledby="schedule-conflict-title" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 outline-none focus:ring-2 focus:ring-rose-400">
+                    <h5 id="schedule-conflict-title" className="text-sm font-black text-rose-900">Có {availabilityConflicts.length} buổi đã có người đặt</h5>
+                    <p className="mt-1 text-xs leading-5 text-rose-700">Chọn một giờ còn trống cho từng ngày hoặc bỏ riêng ngày đó khỏi đơn.</p>
+                    <div className="mt-4 space-y-3">
+                      {availabilityConflicts.map((conflict) => (
+                        <div key={conflict.date + "|" + conflict.time} className="rounded-xl border border-rose-200 bg-white p-3">
+                          <div className="text-sm font-black text-slate-900">{conflict.date.split("-").reverse().join("/")} · {conflict.time} đã kín</div>
+                          {conflict.suggestions.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {conflict.suggestions.map((suggestion) => (
+                                <button key={suggestion} type="button" onClick={() => updateOccurrenceTime(conflict, suggestion)} className="min-h-11 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-700 hover:bg-emerald-100">
+                                  Chọn {suggestion}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs font-semibold text-slate-500">Ngày này không còn giờ phù hợp với thời lượng đã chọn.</p>
+                          )}
+                          <button type="button" onClick={() => updateOccurrenceTime(conflict, null)} className="mt-3 min-h-11 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">Bỏ ngày này</button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1125,12 +1089,6 @@ export default function Booking() {
                 Phương thức thanh toán
               </h3>
 
-              {scheduledOccurrences.length > 1 && (
-                <div className="mb-5 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900" role="status">
-                  <strong>Đây là một lịch dài hạn gồm {scheduledOccurrences.length} buổi.</strong> Nếu chọn cọc hoặc thanh toán online, một giao dịch sẽ áp dụng cho toàn bộ lịch, không thanh toán riêng từng buổi.
-                </div>
-              )}
-
               <fieldset
                 id="payment-methods"
                 aria-describedby={paymentError ? "payment-method-error" : undefined}
@@ -1140,20 +1098,20 @@ export default function Booking() {
                 {[
                   {
                     id: "deposit",
-                    title: scheduledOccurrences.length > 1 ? "Cọc 30% cho cả lịch" : "Đặt cọc (30%)",
-                    desc: scheduledOccurrences.length > 1 ? `Một giao dịch cho ${scheduledOccurrences.length} buổi; thanh toán phần còn lại sau` : "Giữ sân trước, thanh toán 70% còn lại sau",
+                    title: "Đặt cọc (30%)",
+                    desc: "Giữ sân trước, thanh toán 70% còn lại sau",
                     badge: "Phổ biến",
                   },
                   {
                     id: "full",
-                    title: scheduledOccurrences.length > 1 ? "Thanh toán cả lịch" : "Thanh toán 100%",
-                    desc: scheduledOccurrences.length > 1 ? `Thanh toán toàn bộ ${scheduledOccurrences.length} buổi trong một giao dịch` : "Thẻ ATM, Visa, QR VNPay",
+                    title: "Thanh toán 100%",
+                    desc: "Thẻ ATM, Visa, QR VNPay",
                     badge: "Nhanh nhất",
                   },
                   {
                     id: "cash",
-                    title: scheduledOccurrences.length > 1 ? "Tiền mặt tại sân · cả lịch" : "Tiền mặt tại sân",
-                    desc: "Thanh toán trực tiếp khi đến sân",
+                    title: "Tiền mặt tại sân",
+                    desc: "Thanh toán trực tiếp khi đến",
                     badge: "Linh hoạt",
                   },
                 ].map((item) => {
@@ -1188,11 +1146,6 @@ export default function Booking() {
                   );
                 })}
               </fieldset>
-              {scheduledOccurrences.length > 1 && (
-                <p className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900" role="status">
-                  Khi xác nhận, toàn bộ {scheduledOccurrences.length} buổi sẽ được giữ trong cùng một lịch dài hạn và chuyển thẳng đến Paygate. Tiền cọc 30% hoặc thanh toán 100% đều tính trên tổng lịch.
-                </p>
-              )}
               <div className="mt-3 min-h-5" aria-live="polite">
                 {paymentError && (
                   <p id="payment-method-error" role="alert" className="text-sm font-semibold text-red-600">
@@ -1290,7 +1243,7 @@ export default function Booking() {
 
                   {paymentMethod === "deposit" && (
                     <div className="flex justify-between border-b border-amber-100 pb-3 bg-amber-50 px-3 py-2 rounded-xl">
-                      <span className="text-amber-700 font-bold">{scheduledOccurrences.length > 1 ? `Cọc 30% cho cả ${scheduledOccurrences.length} buổi` : "Tiền cọc trước (30%)"}</span>
+                      <span className="text-amber-700 font-bold">Tiền cọc trước (30%)</span>
                       <span className="text-amber-700 font-extrabold text-base">{formatCurrency(deposit)}</span>
                     </div>
                   )}
@@ -1317,13 +1270,13 @@ export default function Booking() {
                 <button
                   type={currentStep === 3 ? "submit" : "button"}
                   onClick={currentStep < 3 ? advanceStep : undefined}
-                  disabled={loading}
+                  disabled={loading || checkingAvailability}
                   className="btn-primary w-full py-4 rounded-xl font-extrabold flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-base"
                 >
-                  {loading ? (
+                  {loading || checkingAvailability ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Đang xử lý...
+                      {checkingAvailability ? "Đang kiểm tra lịch..." : "Đang xử lý..."}
                     </>
                   ) : currentStep < 3 ? (
                     <>
@@ -1338,12 +1291,12 @@ export default function Booking() {
                   ) : paymentMethod === "cash" ? (
                     <>
                       <CheckCircle2 className="w-5 h-5" />
-                      {scheduledOccurrences.length > 1 ? `Xác nhận đặt cả lịch (${scheduledOccurrences.length} buổi)` : "Xác nhận đặt sân"}
+                      Xác nhận đặt sân
                     </>
                   ) : (
                     <>
                       <Wallet className="w-5 h-5" />
-                      {scheduledOccurrences.length > 1 ? `Thanh toán cả lịch (${scheduledOccurrences.length} buổi) →` : "Tiếp tục thanh toán →"}
+                      Tiếp tục thanh toán →
                     </>
                   )}
                 </button>
@@ -1364,96 +1317,6 @@ export default function Booking() {
           </div>
         </form>
       </div>
-      {editingScheduleOccurrence && (
-        <div className="fixed inset-0 z-80 flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="edit-session-title">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="edit-session-title" className="text-xl font-black text-slate-950">Sửa buổi trong lịch</h2>
-                <p className="mt-1 text-sm text-slate-500">Chỉ thay đổi buổi này; các buổi khác giữ nguyên.</p>
-              </div>
-              <button type="button" onClick={() => setEditingScheduleOccurrence(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Đóng">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="mt-6 grid gap-4">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Ngày chơi
-                <input type="date" min={todayIso} value={editingScheduleOccurrence.date} onChange={(event) => {
-                  setEditingScheduleOccurrence((current) => current ? { ...current, date: event.target.value } : current);
-                  setEditingDayLoading(true);
-                  setEditingDayError("");
-                }} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 outline-none focus:border-amber-400" />
-              </label>
-              <fieldset>
-                <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Thời lượng chơi</legend>
-                <div className="flex flex-wrap gap-2">
-                  {DURATIONS.map((option) => {
-                    const selected = editingScheduleOccurrence.duration === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setEditingScheduleOccurrence((current) => current ? { ...current, duration: option.value } : current)}
-                        className={`min-h-10 rounded-xl border px-4 text-sm font-bold transition ${selected ? "border-amber-400 bg-amber-400 text-slate-950" : "border-slate-200 bg-white text-slate-700 hover:border-amber-400 hover:text-amber-800"}`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </fieldset>
-              <fieldset>
-                <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Khung giờ còn trống · mỗi 30 phút</legend>
-                {editingDayLoading && (
-                  <div className="flex min-h-14 items-center gap-2 text-sm font-semibold text-slate-500" role="status"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải lịch trống...</div>
-                )}
-                {!editingDayLoading && editingDayError && (
-                  <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700" role="alert">{editingDayError}</p>
-                )}
-                {!editingDayLoading && !editingDayError && (
-                  <>
-                    {editingOccurrenceSlots.some((slot) => slot.time === editingScheduleOccurrence.time && !slot.disabled) && (
-                      <div className="mb-3 grid grid-cols-2 gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                        <div><div className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Giờ bắt đầu</div><div className="mt-1 text-base font-black text-slate-950">{editingScheduleOccurrence.time}</div></div>
-                        <div><div className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Giờ kết thúc</div><div className="mt-1 text-base font-black text-slate-950">{editingOccurrenceSlots.find((slot) => slot.time === editingScheduleOccurrence.time)?.endTime}</div></div>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                      {editingOccurrenceSlots.map((slot) => {
-                        const selected = editingScheduleOccurrence.time === slot.time;
-                        return (
-                          <button
-                            key={slot.time}
-                            type="button"
-                            disabled={slot.disabled}
-                            aria-pressed={selected}
-                            aria-label={`${slot.time} đến ${slot.endTime}${slot.disabled ? ", không khả dụng" : ""}`}
-                            onClick={() => setEditingScheduleOccurrence((current) => current ? { ...current, time: slot.time } : current)}
-                            className={`min-h-14 rounded-xl border px-2 py-1.5 text-xs font-bold transition ${selected ? "border-amber-400 bg-amber-400 text-slate-950" : slot.disabled ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:border-amber-400 hover:text-amber-800"}`}
-                          >
-                            <span className="block">{slot.time}</span>
-                            <span className={`mt-0.5 block text-[10px] font-semibold ${selected ? "text-slate-800" : "text-slate-500"}`}>{slot.endTime}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {editingOccurrenceSlots.length > 0 && editingOccurrenceSlots.every((slot) => slot.disabled) && (
-                      <p className="mt-2 text-xs font-semibold text-slate-500">Ngày này không còn khung giờ phù hợp cho thời lượng đã chọn.</p>
-                    )}
-                  </>
-                )}
-              </fieldset>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">Ngày, thời lượng và khung giờ phải hợp lệ, còn trong giờ mở cửa và không trùng buổi khác hoặc lịch đã được đặt.</p>
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
-              <button type="button" onClick={() => setEditingScheduleOccurrence(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Hủy</button>
-              <button type="button" disabled={editingDayLoading || Boolean(editingDayError) || !editingOccurrenceSlots.some((slot) => slot.time === editingScheduleOccurrence.time && !slot.disabled)} onClick={saveScheduleOccurrenceEdit} className="min-h-11 flex-1 rounded-xl bg-slate-950 px-4 text-sm font-extrabold text-white transition hover:bg-amber-400 hover:text-slate-950 disabled:opacity-50">Lưu buổi</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
