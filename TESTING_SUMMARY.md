@@ -270,3 +270,29 @@ Checklist nhanh:
 5. Gia hạn một buổi; nếu giờ tiếp theo đã kín thì giữ nguyên đơn cũ, nếu có phụ thu thì đi qua thanh toán adjustment.
 
 Kiểm tra tự động sau khi phục hồi: payment/booking flow, RBAC, venue management, TypeScript, ESLint tập trung và production build đều pass.
+
+## 18. Đồng bộ DB local cho cả nhóm
+
+Snapshot chuẩn hiện nằm tại `Backend/data/db-snapshot.json`. Snapshot này được xuất từ DB trên máy nguồn và phải được commit cùng code.
+
+Mỗi thành viên chạy:
+
+```bash
+git pull origin feat/booking-shared-db-flow
+cd Backend
+test -f .env || cp .env.example .env # không ghi đè secret đang dùng
+npm install
+npm run db:reset
+npm run dev
+```
+
+Trong `Backend/.env` của mô hình DB local từng máy:
+
+```env
+MONGODB_URI=mongodb://127.0.0.1:27017/db_datn_su26
+DB_RESET_ON_START=true
+```
+
+Sau khi start phải thấy log `[db] Đã xoá và nạp lại dữ liệu chuẩn`. Nếu snapshot lỗi, backend sẽ dừng thay vì tiếp tục với DB cũ.
+
+Cảnh báo: `npm run db:reset` và `DB_RESET_ON_START=true` đều xóa dữ liệu DB local hiện tại trước khi nạp snapshot. Nếu cả nhóm dùng chung một MongoDB server/Atlas thì không chạy reset và phải đặt `DB_RESET_ON_START=false` trên tất cả máy.

@@ -75,15 +75,11 @@ connectDB(MONGODB_URI)
       await runSeed(false);
       console.log("Memory DB automatically seeded!");
     }
-    // Mỗi lần khởi động: xoá dữ liệu local rồi nạp lại dữ liệu chuẩn trong
-    // data/db-snapshot.json để mọi máy trong team có cùng dữ liệu.
-    if (!inMemory && process.env.DB_RESET_ON_START !== "false") {
-      try {
-        const result = await resetFromSnapshot();
-        console.log(`[db] Đã xoá và nạp lại dữ liệu chuẩn (xuất lúc ${result.exportedAt}):`, JSON.stringify(result.collections));
-      } catch (error) {
-        console.error("[db] Không nạp được dữ liệu chuẩn, giữ nguyên dữ liệu hiện có:", error.message);
-      }
+    // Chỉ reset khi được bật rõ ràng. Nếu nạp snapshot lỗi, để lỗi truyền ra
+    // và dừng backend thay vì âm thầm chạy với dữ liệu cũ khác các máy khác.
+    if (!inMemory && process.env.DB_RESET_ON_START === "true") {
+      const result = await resetFromSnapshot();
+      console.log(`[db] Đã xoá và nạp lại dữ liệu chuẩn (xuất lúc ${result.exportedAt}):`, JSON.stringify(result.collections));
     }
     await expirePendingPayments();
     const paymentExpiryTimer = setInterval(() => {
