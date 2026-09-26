@@ -1,12 +1,2 @@
-/* Trống - Để tạm để không bị lỗi import */
-.hero {
-    padding: 40px;
-    background: #001529;
-    text-align: center;
-}
-.card-bottom {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 15px;
-}
+/* Không còn được import ở đâu — giữ file để tránh lỗi nếu có import cũ.
+   Giao diện Blog dùng hoàn toàn Tailwind + token trong src/index.css. */

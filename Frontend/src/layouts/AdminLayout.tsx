@@ -1,161 +1,120 @@
-import { Layout, Menu, Avatar, Dropdown } from 'antd';
+import { useEffect, useState } from 'react';
+import { Layout, Menu, Avatar, Dropdown, Drawer, Badge } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, CalendarDays, ClipboardList, MapPin, LogOut, Bell, Settings, User, Ticket, Shield, Trophy } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, ClipboardList, MapPin, LogOut, Bell, User, Ticket, Shield, Trophy, Menu as MenuIcon, ExternalLink } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import BrandLogo from '../components/BrandLogo';
 
-const { Header, Sider, Content } = Layout;
+const { Sider, Content } = Layout;
+
+const MENU_ITEMS = [
+    { key: "/admin/dashboard", icon: LayoutDashboard, label: "Tổng quan", title: "Tổng quan hệ thống" },
+    { key: "/admin/calendar", icon: CalendarDays, label: "Lịch đặt sân", title: "Lịch đặt sân" },
+    { key: "/admin/bookings", icon: ClipboardList, label: "Danh sách đơn", title: "Quản lý đơn đặt sân" },
+    { key: "/admin/courts", icon: MapPin, label: "Quản lý sân bãi", title: "Quản lý sân bãi", role: "manager" },
+    { key: "/admin/facilities", icon: Trophy, label: "Cơ sở sân", title: "Cơ sở sân", role: "manager" },
+    { key: "/admin/customers", icon: User, label: "Khách hàng", title: "Khách hàng" },
+    { key: "/admin/vouchers", icon: Ticket, label: "Khuyến mãi", title: "Khuyến mãi", role: "admin" },
+    { key: "/admin/employees", icon: Shield, label: "Phân quyền", title: "Phân quyền nhân viên", role: "admin" },
+];
 
 export default function AdminLayout() {
     const location = useLocation();
     const navigate = useNavigate();
     const { logout, user } = useAuth();
+    const [drawerOpen, setDrawerOpen] = useState(false);
 
-    const menuItems = [
-        {
-            key: "/admin/dashboard",
-            icon: <LayoutDashboard size={18} />,
-            label: <Link to="/admin/dashboard" className="text-sm font-semibold">Tổng quan</Link>,
-        },
-        {
-            key: "/admin/calendar",
-            icon: <CalendarDays size={18} />,
-            label: <Link to="/admin/calendar" className="text-sm font-semibold">Lịch đặt sân</Link>,
-        },
-        {
-            key: "/admin/bookings",
-            icon: <ClipboardList size={18} />,
-            label: <Link to="/admin/bookings" className="text-sm font-semibold">Danh sách đơn</Link>,
-        },
-        {
-            key: "/admin/courts",
-            icon: <MapPin size={18} />,
-            label: <Link to="/admin/courts" className="text-sm font-semibold">Quản lý sân bãi</Link>,
-        },
-        {
-            key: "/admin/facilities",
-            icon: <Trophy size={18} />,
-            label: <Link to="/admin/facilities" className="text-sm font-semibold">Cơ sở sân</Link>,
-        },
-        {
-            key: "/admin/customers",
-            icon: <User size={18} />,
-            label: <Link to="/admin/customers" className="text-sm font-semibold">Khách hàng</Link>,
-        },
-        {
-            key: "/admin/vouchers",
-            icon: <Ticket size={18} />,
-            label: <Link to="/admin/vouchers" className="text-sm font-semibold">Khuyến mãi</Link>,
-        },
-        {
-            key: "/admin/employees",
-            icon: <Shield size={18} />,
-            label: <Link to="/admin/employees" className="text-sm font-semibold">Phân quyền</Link>,
-        },
-    ];
+    useEffect(() => setDrawerOpen(false), [location.pathname]);
 
-    const visibleMenuItems = menuItems.filter((item) => {
-        if (item.key === "/admin/courts" || item.key === "/admin/facilities") return user?.role === "manager";
-        if (item.key === "/admin/vouchers" || item.key === "/admin/employees") return user?.role === "admin";
-        return true;
-    });
+    const visible = MENU_ITEMS.filter((item) => !item.role || item.role === user?.role);
+    const selectedKey = location.pathname === "/admin" ? "/admin/dashboard" : location.pathname;
+    const current = visible.find((item) => item.key === selectedKey);
+
+    const menu = (
+        <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            className="premium-sider-menu"
+            items={visible.map(({ key, icon: Icon, label }) => ({
+                key,
+                icon: <Icon size={18} aria-hidden="true" />,
+                label: <Link to={key}>{label}</Link>,
+            }))}
+        />
+    );
+
+    const sidebar = (
+        <div className="flex h-full flex-col">
+            <div className="flex h-[72px] items-center border-b border-stone-100 px-5">
+                <BrandLogo to="/admin/dashboard" subtitle="Control Center" />
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+                <div className="px-3 pb-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-stone-400">Quản trị</div>
+                {menu}
+            </div>
+            <div className="border-t border-stone-100 p-3">
+                <Link to="/" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-stone-600 transition hover:bg-brand-50 hover:text-brand-700">
+                    <ExternalLink size={16} aria-hidden="true" /> Về trang khách hàng
+                </Link>
+            </div>
+        </div>
+    );
 
     const userMenu = [
-        {
-            key: "profile",
-            label: <span className="flex items-center gap-2 text-xs"><User size={14} /> Thông tin cá nhân</span>,
-        },
-        {
-            key: "settings",
-            label: <span className="flex items-center gap-2 text-xs"><Settings size={14} /> Cài đặt hệ thống</span>,
-        },
+        { key: "profile", label: <Link to="/profile" className="flex items-center gap-2"><User size={14} /> Thông tin cá nhân</Link> },
         { type: "divider" as const },
         {
             key: "logout",
             danger: true,
-            label: <button type="button" onClick={() => { logout(); navigate('/'); }} className="flex items-center gap-2 text-xs"><LogOut size={14} /> Đăng xuất</button>,
+            label: <button type="button" onClick={() => { logout(); navigate('/'); }} className="flex items-center gap-2"><LogOut size={14} /> Đăng xuất</button>,
         },
     ];
 
     return (
-        <Layout className="min-h-screen font-sans bg-black text-gray-200">
-            {/* Lớp nền ambient glow */}
-            <div className="absolute top-[5%] left-[10%] w-[350px] h-[350px] rounded-full bg-yellow-500/5 blur-[120px] pointer-events-none" />
-            <div className="absolute bottom-[10%] right-[10%] w-[400px] h-[400px] rounded-full bg-yellow-500/5 blur-[140px] pointer-events-none" />
-
-            <Sider
-                width={270}
-                theme="dark"
-                className="bg-zinc-950 border-r border-white/5 m-4 mb-4 rounded-3xl overflow-hidden sticky top-4 custom-sider shadow-2xl"
-                style={{ height: 'calc(100vh - 32px)', background: '#09090b' }}
-            >
-                <div className="h-20 flex items-center px-6 mt-2 border-b border-white/5">
-                    <Link to="/" className="flex items-center gap-3 group">
-                        <div className="w-10 h-10 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl flex justify-center items-center text-xl group-hover:scale-105 transition-transform">
-                            <Trophy className="h-5 w-5 text-yellow-400" />
-                        </div>
-                        <div>
-                            <span className="text-white font-extrabold tracking-tight text-lg">
-                                Golden<span className="text-yellow-400">Admin</span>
-                            </span>
-                            <div className="text-[9px] text-gray-500 uppercase font-black tracking-widest">
-                                Control Center
-                            </div>
-                        </div>
-                    </Link>
-                </div>
-
-                <div className="p-3">
-                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-black px-4 py-2">
-                        Quản trị hệ thống
-                    </div>
-                    <Menu
-                        theme="dark"
-                        mode="inline"
-                        selectedKeys={[location.pathname]}
-                        items={visibleMenuItems}
-                        style={{ background: 'transparent' }}
-                        className="border-none space-y-1 font-semibold !bg-transparent text-gray-400"
-                    />
-                </div>
+        <Layout className="min-h-screen bg-surface font-sans">
+            <Sider width={264} className="!sticky top-0 hidden h-screen border-r border-stone-200 !bg-white lg:block" theme="light">
+                {sidebar}
             </Sider>
 
-            <Layout className="bg-transparent relative">
-                <Header
-                    className="mx-6 mt-4 rounded-2xl border border-white/10 px-8 flex justify-between items-center h-18 sticky top-4 z-50 transition-all shadow-xl"
-                    style={{ background: 'rgba(18, 18, 20, 0.85)', backdropFilter: 'blur(16px)' }}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                        <div>
-                            <h2 className="text-base font-bold text-white m-0 tracking-tight">Hệ Thống Quản Lý GoldenState</h2>
-                            <span className="text-xs text-gray-400 font-medium">Bảng điều khiển hoạt động sân bóng rổ</span>
+            <Drawer placement="left" open={drawerOpen} onClose={() => setDrawerOpen(false)} width={280} closable={false} styles={{ body: { padding: 0 } }}>
+                {sidebar}
+            </Drawer>
+
+            <Layout className="min-w-0 bg-transparent">
+                <header className="sticky top-0 z-40 flex h-[72px] items-center justify-between gap-4 border-b border-stone-200/80 bg-white/85 px-4 backdrop-blur-xl sm:px-8">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <button type="button" onClick={() => setDrawerOpen(true)} className="grid h-11 w-11 place-items-center rounded-xl text-stone-700 transition hover:bg-stone-100 lg:hidden" aria-label="Mở menu quản trị">
+                            <MenuIcon size={22} />
+                        </button>
+                        <div className="min-w-0">
+                            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-700">GoldenState Admin</div>
+                            <h1 className="m-0 truncate text-lg font-extrabold text-stone-950">{current?.title || "Bảng điều khiển"}</h1>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-5">
-                        <div className="relative cursor-pointer transition-all hover:scale-105 bg-black/60 p-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-yellow-400">
-                            <Bell size={18} />
-                            <span className="absolute -top-1 -right-1 bg-yellow-500 text-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-black">
-                                3
-                            </span>
-                        </div>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <Badge count={3} size="small" color="#f97316" offset={[-4, 4]}>
+                            <button type="button" className="grid h-11 w-11 place-items-center rounded-xl border border-stone-200 bg-white text-stone-600 transition hover:border-brand-300 hover:text-brand-700" aria-label="Thông báo (3 mới)">
+                                <Bell size={18} />
+                            </button>
+                        </Badge>
 
-                        <Dropdown menu={{ items: userMenu }} placement="bottomRight" arrow>
-                            <div className="flex items-center gap-3 cursor-pointer bg-black/60 hover:bg-black/90 p-1.5 pr-4 rounded-xl transition-all border border-white/10">
-                                <Avatar size={34} className="bg-gradient-to-br from-yellow-400 to-amber-600 text-black font-black">
+                        <Dropdown menu={{ items: userMenu }} placement="bottomRight" trigger={["click"]}>
+                            <button type="button" className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white py-1.5 pl-1.5 pr-2 transition hover:border-brand-300 sm:pr-4">
+                                <Avatar size={34} shape="square" className="!rounded-lg !bg-gradient-to-br from-brand-400 to-brand-600 font-extrabold !text-white">
                                     {(user?.fullName || user?.email || "U")[0].toUpperCase()}
                                 </Avatar>
-                                <div className="hidden sm:block text-left">
-                                    <div className="text-xs font-bold text-white leading-none mb-1">{user?.fullName || user?.email}</div>
-                                    <div className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider leading-none">{user?.role === "manager" ? "Quản lý sân" : "Quản trị hệ thống"}</div>
-                                </div>
-                            </div>
+                                <span className="hidden text-left sm:block">
+                                    <span className="block text-sm font-bold leading-tight text-stone-900">{user?.fullName || user?.email}</span>
+                                    <span className="block text-[11px] font-semibold leading-tight text-stone-500">{user?.role === "manager" ? "Quản lý sân" : "Quản trị hệ thống"}</span>
+                                </span>
+                            </button>
                         </Dropdown>
                     </div>
-                </Header>
+                </header>
 
-                <Content className="p-8 overflow-auto relative z-10">
-                    <div className="max-w-[1600px] mx-auto w-full">
+                <Content className="relative p-4 sm:p-8">
+                    <div key={location.pathname} className="page-enter mx-auto w-full max-w-[1600px]">
                         <Outlet />
                     </div>
                 </Content>

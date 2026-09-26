@@ -41,64 +41,70 @@ export default function VnPayReturn() {
 
   if (status === "loading") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh] bg-black text-gray-200">
-        <Loader2 className="w-12 h-12 text-yellow-500 animate-spin mb-4" />
-        <p className="text-gray-400 font-medium text-sm">Đang xác thực kết quả thanh toán từ VNPay...</p>
+      <div className="flex min-h-[70vh] flex-col items-center justify-center bg-surface px-4 text-center" role="status" aria-live="polite">
+        <div className="relative mb-6 grid h-20 w-20 place-items-center">
+          <span className="absolute inset-0 rounded-full bg-brand-100 animate-ping opacity-60" aria-hidden="true" />
+          <span className="relative grid h-20 w-20 place-items-center rounded-full bg-white text-brand-600 shadow-lift ring-1 ring-brand-100">
+            <Loader2 className="h-9 w-9 animate-spin" aria-hidden="true" />
+          </span>
+        </div>
+        <h1 className="text-xl font-extrabold text-stone-950">Đang xác thực thanh toán</h1>
+        <p className="mt-2 text-sm font-medium text-stone-600">Đang xác thực kết quả thanh toán từ VNPay...</p>
       </div>
     );
   }
 
+  const tone = status === "success"
+    ? { ring: "bg-emerald-50 text-emerald-600 ring-emerald-100", band: "from-emerald-50", icon: <CheckCircle2 className="h-10 w-10" aria-hidden="true" />, eyebrow: "Giao dịch thành công", eyebrowClass: "text-emerald-700" }
+    : status === "refund_pending"
+      ? { ring: "bg-brand-50 text-brand-600 ring-brand-100", band: "from-brand-50", icon: <RotateCcw className="h-10 w-10" aria-hidden="true" />, eyebrow: "Đang hoàn tiền", eyebrowClass: "text-brand-700" }
+      : { ring: "bg-rose-50 text-rose-600 ring-rose-100", band: "from-rose-50", icon: <XCircle className="h-10 w-10" aria-hidden="true" />, eyebrow: "Giao dịch chưa hoàn tất", eyebrowClass: "text-rose-700" };
+
   return (
-    <div className="min-h-screen bg-black text-gray-200 py-20 px-4 flex items-center justify-center">
-      <div className="max-w-lg w-full bg-zinc-900 rounded-3xl border border-white/10 p-8 md:p-12 text-center shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-[80vh] bg-surface brand-grid py-16 px-4 flex items-center justify-center">
+      <div className="card relative w-full max-w-lg overflow-hidden text-center animate-scale-in" role="status" aria-live="polite">
+        <div className={`absolute inset-x-0 top-0 h-40 bg-gradient-to-b ${tone.band} to-transparent pointer-events-none`} aria-hidden="true" />
+        <div className="relative p-8 md:p-12">
+          <div className={`mx-auto mb-6 grid h-20 w-20 place-items-center rounded-full ring-8 ${tone.ring} animate-scale-in`}>
+            {tone.icon}
+          </div>
+          <p className={`text-xs font-extrabold uppercase tracking-wider ${tone.eyebrowClass}`}>{tone.eyebrow}</p>
 
-        {status === "success" ? (
-          <>
-            <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-6 text-emerald-400">
-              <CheckCircle2 className="w-10 h-10" />
-            </div>
-            <h2 className="text-3xl font-black text-white mb-2">Thanh Toán Thành Công!</h2>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
-              Giao dịch qua cổng VNPay đã được ghi nhận an toàn. Bạn đã sẵn sàng cho trận đấu sắp tới!
-            </p>
-            {bookingId && (
-              <div className="bg-black/60 border border-white/10 rounded-2xl p-4 mb-8">
-                <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Mã đơn đặt sân</span>
-                <span className="font-mono text-xl font-black text-yellow-400">BK{String(bookingId).padStart(6, "0")}</span>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${status === "refund_pending" ? "bg-amber-500/10 border border-amber-500/30 text-amber-400" : "bg-rose-500/10 border border-rose-500/30 text-rose-400"}`}>
-              {status === "refund_pending" ? <RotateCcw className="w-10 h-10" /> : <XCircle className="w-10 h-10" />}
-            </div>
-            <h2 className="text-3xl font-black text-white mb-2">{status === "refund_pending" ? "Đang Xử Lý Hoàn Tiền" : "Thanh Toán Chưa Hoàn Tất"}</h2>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
-              {status === "refund_pending" ? "Giao dịch đã trừ tiền nhưng đơn không thể nhận thêm khoản thanh toán. Hệ thống đã đưa khoản dư vào hàng chờ hoàn tiền." : "Giao dịch bị hủy hoặc có sự cố xảy ra trong quá trình xử lý qua VNPay."}
-            </p>
-            {errorMessage && (
-              <div className={`text-xs font-semibold p-3.5 rounded-xl mb-8 ${status === "refund_pending" ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"}`}>
-                Chi tiết: {errorMessage}
-              </div>
-            )}
-          </>
-        )}
+          {status === "success" ? (
+            <>
+              <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-stone-950">Thanh toán thành công!</h1>
+              <p className="mt-3 mb-6 text-sm leading-relaxed text-stone-600">
+                Giao dịch qua cổng VNPay đã được ghi nhận an toàn. Bạn đã sẵn sàng cho trận đấu sắp tới!
+              </p>
+              {bookingId && (
+                <div className="mb-8 rounded-2xl border border-dashed border-brand-300 bg-brand-50/60 p-4">
+                  <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-stone-600">Mã đơn đặt sân</span>
+                  <span className="font-mono text-2xl font-black text-brand-700">BK{String(bookingId).padStart(6, "0")}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-stone-950">{status === "refund_pending" ? "Đang xử lý hoàn tiền" : "Thanh toán chưa hoàn tất"}</h1>
+              <p className="mt-3 mb-6 text-sm leading-relaxed text-stone-600">
+                {status === "refund_pending" ? "Giao dịch đã trừ tiền nhưng đơn không thể nhận thêm khoản thanh toán. Hệ thống đã đưa khoản dư vào hàng chờ hoàn tiền." : "Giao dịch bị hủy hoặc có sự cố xảy ra trong quá trình xử lý qua VNPay."}
+              </p>
+              {errorMessage && (
+                <div className={`mb-8 rounded-xl border p-3.5 text-left text-xs font-semibold ${status === "refund_pending" ? "border-brand-200 bg-brand-50 text-brand-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+                  Chi tiết: {errorMessage}
+                </div>
+              )}
+            </>
+          )}
 
-        <div className="space-y-3">
-          <Link
-            to="/my-bookings"
-            className="btn-primary block w-full py-4 rounded-xl font-extrabold text-sm"
-          >
-            Xem danh sách đơn của tôi
-          </Link>
-          <Link
-            to="/"
-            className="btn-outline block w-full py-3 rounded-xl text-sm"
-          >
-            Quay về trang chủ
-          </Link>
+          <div className="space-y-3">
+            <Link to="/my-bookings" className="btn-primary w-full min-h-12 rounded-xl text-sm">
+              Xem danh sách đơn của tôi
+            </Link>
+            <Link to="/" className="btn-outline w-full min-h-12 rounded-xl text-sm">
+              Quay về trang chủ
+            </Link>
+          </div>
         </div>
       </div>
     </div>

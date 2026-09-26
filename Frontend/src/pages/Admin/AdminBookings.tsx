@@ -1,7 +1,6 @@
-import type { ThHTMLAttributes } from "react";
 import type { Dayjs } from "dayjs";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider } from "antd";
+import { Table, Select, message, Spin, Button, Input, Modal, Form, DatePicker, TimePicker, InputNumber, Divider, Tooltip, Grid } from "antd";
 import { QrCode, Filter, CheckCircle2, CreditCard, Banknote, Download, Plus, Zap, Landmark, CircleCheck, Copy, Printer, UserRound, Wrench } from "lucide-react";
 import { api, type Booking, formatCurrency, formatSlotRange, Court } from "../../lib/api";
 import * as XLSX from 'xlsx';
@@ -17,8 +16,13 @@ type PosFormValues = {
   time: Dayjs;
   duration: number;
   total: number;
+  voucher?: string;
   paymentMethod: "cash" | "full" | "deposit";
 };
+
+// Backend chỉ nhận sân bóng rổ đang hoạt động.
+const isBookableCourt = (court: Court) =>
+  court.status === "active" && String(court.type || "").toLocaleLowerCase("vi-VN").includes("bóng rổ");
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -34,7 +38,11 @@ export default function AdminBookings() {
   const [isPosOpen, setIsPosOpen] = useState(false);
   const [courts, setCourts] = useState<Court[]>([]);
   const [posForm] = Form.useForm();
+  const [posSubmitting, setPosSubmitting] = useState(false);
+  const posCourts = courts.filter(isBookableCourt);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  // Chỉ ghim cột Mã đơn / Thao tác khi màn hình đủ rộng để phần giữa còn chỗ cuộn.
+  const pinColumns = Boolean(Grid.useBreakpoint().lg);
 
   const fetchBookings = useCallback(async () => {
     try {
@@ -97,30 +105,55 @@ export default function AdminBookings() {
   };
 
   const handlePosSubmit = async (values: PosFormValues) => {
+    const court = posCourts.find((item) => item.id === values.courtId);
+    if (!court) {
+      message.error("Sân không còn hoạt động, vui lòng chọn sân khác");
+      return;
+    }
+    const occurrence = {
+      date: values.date.format("YYYY-MM-DD"),
+      time: values.time.format("HH:mm"),
+      duration: Number(values.duration),
+    };
+    setPosSubmitting(true);
     try {
-      const st = values.time.format('HH:mm');
-      const court = courts.find(c => c.id === values.courtId);
-      await api.post('/bookings', {
-        fieldId: court?.fieldId || 1,
-        courtId: values.courtId,
-        fieldName: "Hệ thống POS",
-        court: court?.name || "Sân chỉ định",
-        date: values.date.format('YYYY-MM-DD'),
-        time: st,
-        duration: values.duration,
+      // Kiểm tra trùng lịch trước, chỉ tạo đơn khi khung giờ còn trống.
+      const availability = await api.post<{ available: boolean; conflicts: Array<{ suggestions: string[] }> }>("/bookings/check-availability", {
+        courtId: court.id,
+        duration: occurrence.duration,
+        occurrences: [occurrence],
+      });
+      if (!availability.data.available) {
+        const suggestions = availability.data.conflicts[0]?.suggestions || [];
+        const hint = suggestions.length ? ` Giờ còn trống: ${suggestions.join(", ")}` : " Ngày này không còn giờ phù hợp.";
+        posForm.setFields([{ name: "time", errors: ["Khung giờ đã có người đặt hoặc ngoài giờ mở cửa"] }]);
+        message.error(`${court.name} đã kín lúc ${occurrence.time} ngày ${formatDateVi(occurrence.date)}.${hint}`);
+        return;
+      }
+
+      await api.post("/bookings", {
+        fieldId: court.fieldId,
+        courtId: court.id,
+        court: court.name,
+        occurrences: [occurrence],
+        date: occurrence.date,
+        time: occurrence.time,
+        duration: occurrence.duration,
         total: values.total,
+        voucherCode: values.voucher?.trim().toUpperCase() || "",
         customer: { fullName: values.fullName, phone: values.phone, note: "Tạo từ Admin POS" },
         paymentMethod: values.paymentMethod,
-        paymentStatus: values.paymentMethod === 'cash' ? 'paid' : 'unpaid',
-        status: "confirmed",
         createdAt: new Date().toISOString()
       });
       message.success("Tạo đơn POS thành công!");
       setIsPosOpen(false);
       posForm.resetFields();
       fetchBookings();
-    } catch {
-      message.error("Lỗi tạo đơn");
+    } catch (e: unknown) {
+      const errorMessage = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      message.error(errorMessage || "Lỗi tạo đơn");
+    } finally {
+      setPosSubmitting(false);
     }
   };
 
@@ -216,12 +249,29 @@ export default function AdminBookings() {
     );
   });
 
+  const statusChip = (status: Booking["status"]) => {
+    const map: Record<string, { label: string; cls: string; dot: string }> = {
+      completed: { label: "Hoàn thành", cls: "bg-stone-100 text-stone-700 ring-stone-200", dot: "bg-stone-500" },
+      confirmed: { label: "Đã xác nhận", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" },
+      cancelled: { label: "Đã hủy", cls: "bg-rose-50 text-rose-700 ring-rose-200", dot: "bg-rose-500" },
+    };
+    const item = map[status] || { label: "Chờ thanh toán", cls: "bg-brand-50 text-brand-800 ring-brand-200", dot: "bg-brand-500" };
+    return (
+      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ring-1 ring-inset ${item.cls}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${item.dot}`} aria-hidden="true" />
+        {item.label}
+      </span>
+    );
+  };
+
   const columns = [
     {
       title: "Mã đơn",
       dataIndex: "id",
+      width: 100,
+      fixed: pinColumns ? ("left" as const) : undefined,
       render: (text: number) => (
-        <span className="font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded-md">
+        <span className="whitespace-nowrap rounded-md bg-stone-100 px-1.5 py-1 text-xs font-bold text-stone-800 tabular-nums">
           BK{String(text).padStart(6, "0")}
         </span>
       ),
@@ -229,58 +279,64 @@ export default function AdminBookings() {
     {
       title: "Khách hàng",
       key: "customer",
+      width: 140,
       render: (_: unknown, record: Booking & { refundStk?: string, refundBank?: string }) => (
-        <div>
-          <div className="font-bold text-gray-800">{record.customer?.fullName}</div>
-          <div className="text-gray-500 text-xs mt-0.5">{record.customer?.phone}</div>
+        <div className="min-w-0">
+          <div className="truncate font-bold text-stone-900" title={record.customer?.fullName}>{record.customer?.fullName}</div>
+          <div className="mt-0.5 text-xs text-stone-500 tabular-nums">{record.customer?.phone}</div>
         </div>
       ),
     },
     {
-      title: "Thông tin sân",
+      title: "Sân",
       key: "courtInfo",
+      width: 152,
       render: (_: unknown, record: Booking) => (
-        <div className="text-sm">
-          <div className="font-semibold text-gray-800">{record.fieldName}</div>
-          <div className="text-gray-500 mt-0.5">{record.court}</div>
+        <div className="min-w-0 text-sm">
+          <div className="truncate font-semibold text-stone-800" title={record.fieldName}>{record.fieldName}</div>
+          <div className="mt-0.5 truncate text-xs text-stone-500" title={record.court}>{record.court}</div>
         </div>
       ),
     },
     {
       title: "Thời gian",
       key: "time",
+      width: 134,
       render: (_: unknown, r: Booking) => (
         <div className="text-sm">
-          <div className="font-medium text-gray-700">{formatDateVi(r.date)}</div>
-          <div className="text-gray-500 mt-0.5">{formatSlotRange(r.time, r.duration || 1)} <span className="text-xs">({r.duration}h)</span></div>
+          <div className="whitespace-nowrap font-semibold text-stone-800">{formatDateVi(r.date)}</div>
+          <div className="mt-0.5 whitespace-nowrap text-xs text-stone-500 tabular-nums">{formatSlotRange(r.time, r.duration || 1)} · {r.duration}h</div>
         </div>
       ),
     },
     {
       title: "Tổng tiền",
       dataIndex: "total",
+      width: 104,
+      align: "right" as const,
       render: (v: number) => (
-        <span className="font-bold text-blue-600">{formatCurrency(v)}</span>
+        <span className="whitespace-nowrap font-extrabold text-stone-900 tabular-nums">{formatCurrency(v)}</span>
       ),
     },
     {
       title: "Thanh toán",
       key: "pay",
+      width: 184,
       render: (_: unknown, r: Booking) => {
         const isGroupedBooking = Boolean(r.bookingGroupId && Number(r.groupSize) > 1);
         const groupPaidAmount = r.bookingGroupId ? paidAmountByGroup.get(r.bookingGroupId) || 0 : 0;
         return (
-          <div className="flex flex-col gap-1 items-start min-w-[140px]">
-            <div className="text-[11px] font-medium text-gray-500 flex items-center mb-1 bg-gray-50 px-2 py-0.5 rounded">
-              {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} className="mr-1" /> : <Banknote size={12} className="mr-1" />}
-              {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
-            </div>
-            <span className={`rounded-lg px-2 py-1 text-xs font-bold ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700" : r.paymentStatus === "deposit_paid" ? "bg-violet-50 text-violet-700" : ["refunded", "partially_refunded"].includes(r.paymentStatus) ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+          <div className="flex flex-col items-start gap-1.5">
+            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-inset ${r.paymentStatus === "paid" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : r.paymentStatus === "deposit_paid" ? "bg-brand-50 text-brand-800 ring-brand-200" : ["refunded", "partially_refunded"].includes(r.paymentStatus) ? "bg-stone-100 text-stone-700 ring-stone-200" : "bg-white text-stone-600 ring-stone-300"}`}>
               {r.paymentStatus === "paid" ? "Đã thanh toán" : r.paymentStatus === "deposit_paid" ? "Đã cọc 30%" : r.paymentStatus === "refunded" ? "Đã hoàn tiền" : r.paymentStatus === "partially_refunded" ? "Đã hoàn 50%" : "Chưa thanh toán"}
             </span>
+            <div className="flex items-center gap-1 whitespace-nowrap text-[11px] font-medium text-stone-500">
+              {["transfer", "full", "deposit"].includes(r.paymentMethod) ? <CreditCard size={12} aria-hidden="true" /> : <Banknote size={12} aria-hidden="true" />}
+              {r.paymentMethod === "full" || r.paymentMethod === "transfer" ? "Chuyển khoản 100%" : (r.paymentMethod === "deposit" ? "Chuyển khoản (Cọc)" : "Tại sân")}
+            </div>
             {r.paymentStatus === "deposit_paid" && Number(r.paidAmount) > 0 && (
-              <div className="text-[11px] leading-4 text-gray-600">
-                {isGroupedBooking && <div>Cả lịch ({r.groupSize} buổi): <strong>{formatCurrency(groupPaidAmount)}</strong></div>}
+              <div className="text-[11px] leading-4 text-stone-600">
+                {isGroupedBooking && <div>Cả lịch ({r.groupSize} buổi): <strong className="text-stone-800">{formatCurrency(groupPaidAmount)}</strong></div>}
                 <div>Buổi này: {formatCurrency(Number(r.paidAmount || 0))}</div>
               </div>
             )}
@@ -289,14 +345,16 @@ export default function AdminBookings() {
       },
     },
     {
-      title: "Hoàn tiền",
-      key: "refund",
+      title: "Trạng thái",
+      key: "status",
+      width: 170,
       render: (_: unknown, r: Booking) => {
+        const refundInfo = (() => {
         if (r.refundStatus === "pending") {
           return (
-            <div className="min-w-[190px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-900">
               <div className="font-bold">Đang chờ hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div>
-              <div className="mt-1.5 space-y-0.5 text-amber-800">
+              <div className="mt-1.5 space-y-0.5 text-brand-800">
                 {r.refundReason === "duplicate_or_expired_payment" ? (
                   <>
                     <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || "vnpay").toUpperCase()}</div>
@@ -306,7 +364,7 @@ export default function AdminBookings() {
                   <>
                     <div><span className="font-semibold">Lý do:</span> {r.refundReason === "maintenance" ? "Bảo trì đột xuất" : r.refundReason === "reschedule_price_difference" ? "Chênh lệch do đổi lịch" : "Chủ sân hủy"}</div>
                     <div><span className="font-semibold">Cổng:</span> {(r.refundGateway || (r.paymentMethod === "cash" ? "tiền mặt" : "chưa xác định")).toUpperCase()}</div>
-                    <div><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || r.refundPaymentCode || "Chưa có giao dịch điện tử"}</div>
+                    <div className="break-all"><span className="font-semibold">Mã GD:</span> {r.refundTransactionCode || r.refundPaymentCode || "Chưa có giao dịch điện tử"}</div>
                   </>
                 ) : (
                   <>
@@ -319,45 +377,50 @@ export default function AdminBookings() {
           );
         }
         if (r.refundStatus === "completed") {
-          return <div className="min-w-[190px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div><div className="mt-1">{["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(r.refundReason || "") ? "Phương thức thanh toán gốc" : (r.refundBank || "—") + " · " + (r.refundStk || "—")}</div></div>;
+          return <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><div className="font-bold">Đã hoàn {formatCurrency(r.refundAmount || 0)}{r.refundRate ? " (" + r.refundRate + "%)" : ""}</div><div className="mt-1">{["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(r.refundReason || "") ? "Phương thức thanh toán gốc" : (r.refundBank || "—") + " · " + (r.refundStk || "—")}</div></div>;
         }
-        return <span className="text-xs text-gray-400">Không có</span>;
+        return null;
+        })();
+        return (
+          <div className="flex flex-col items-start gap-2">
+            {statusChip(r.status)}
+            {refundInfo}
+          </div>
+        );
       },
     },
     {
-      title: "Trạng thái",
-      key: "status",
-      render: (_: unknown, record: Booking) => (
-        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${record.status === "completed" ? "bg-emerald-50 text-emerald-700" : record.status === "confirmed" ? "bg-blue-50 text-blue-700" : record.status === "cancelled" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
-          {record.status === "completed" ? "Hoàn thành" : record.status === "confirmed" ? "Đã xác nhận" : record.status === "cancelled" ? "Đã hủy" : "Chờ thanh toán"}
-        </span>
-      ),
-    },
-    {
-      title: "Hành động",
+      title: "Thao tác",
       key: "actions",
+      width: 128,
+      fixed: pinColumns ? ("right" as const) : undefined,
       render: (_: unknown, r: Booking & { refundStk?: string }) => (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           {r.refundStatus === "pending" && (
-            <Button size="small" danger type="primary" ghost className="font-semibold shadow-sm w-full text-xs" onClick={() => setRefundModalBooking(r)}>
-              Xử lý hoàn tiền
-            </Button>
-          )}
-          {r.status !== "cancelled" && (
-            <Button size="small" className="font-semibold w-full text-xs flex items-center justify-center gap-1" onClick={() => openTicket(r)}>
-              <Printer size={12} /> Xem / In vé
-            </Button>
-          )}
-          {(r.status === "pending" || r.status === "confirmed") && (
-            <Button size="small" danger className="font-semibold w-full text-xs flex items-center justify-center gap-1" onClick={() => { setOperationsCancelBooking(r); setOperationsCancelReason("owner_cancelled"); }}>
-              <Wrench size={12} /> Hủy do sân
+            <Button size="small" type="primary" className="w-full !text-xs" onClick={() => setRefundModalBooking(r)}>
+              Hoàn tiền
             </Button>
           )}
           {r.status === "confirmed" && (
-            <Button size="small" type="primary" className="bg-emerald-500 hover:bg-emerald-600 font-semibold shadow-emerald-500/30 shadow-md w-full border-0 text-xs flex items-center justify-center gap-1" onClick={() => markCheckIn(r.id)}>
-              <CheckCircle2 size={12} /> Check-in
+            <Button size="small" type="primary" className="w-full !border-0 !bg-emerald-600 !text-xs hover:!bg-emerald-700" icon={<CheckCircle2 size={12} aria-hidden="true" />} onClick={() => markCheckIn(r.id)}>
+              Check-in
             </Button>
           )}
+          {r.status !== "cancelled" && (
+            <div className="flex gap-1.5">
+              {r.status !== "cancelled" && (
+                <Tooltip title="Xem / In vé">
+                  <Button size="small" className="flex-1" aria-label={`Xem hoặc in vé BK${String(r.id).padStart(6, "0")}`} icon={<Printer size={14} aria-hidden="true" />} onClick={() => openTicket(r)} />
+                </Tooltip>
+              )}
+              {(r.status === "pending" || r.status === "confirmed") && (
+                <Tooltip title="Hủy do sân">
+                  <Button size="small" danger className="flex-1" aria-label={`Hủy do sân BK${String(r.id).padStart(6, "0")}`} icon={<Wrench size={14} aria-hidden="true" />} onClick={() => { setOperationsCancelBooking(r); setOperationsCancelReason("owner_cancelled"); }} />
+                </Tooltip>
+              )}
+            </div>
+          )}
+          {r.status === "cancelled" && r.refundStatus !== "pending" && <span className="text-center text-xs text-stone-400">—</span>}
         </div>
       ),
     },
@@ -402,110 +465,117 @@ export default function AdminBookings() {
   const completedRefunds = refundRequests.filter((booking) => booking.refundStatus === "completed");
   const pendingRefundTotal = pendingRefunds.reduce((total, booking) => total + Number(booking.refundAmount || 0), 0);
 
+  const filterOptions = [
+    { key: 'all', label: 'Tất cả' },
+    { key: 'pending', label: 'Chờ duyệt' },
+    { key: 'confirmed', label: 'Đã duyệt' },
+    { key: 'completed', label: 'Hoàn thành' },
+    { key: 'cancelled', label: 'Đã hủy' },
+    { key: 'refund_pending', label: 'Chờ hoàn tiền' },
+  ];
+
   return (
-    <div className="animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-black bg-gradient-to-r from-orange-500 to-rose-500 bg-clip-text text-transparent tracking-tight">Quản lý Đơn Đặt Sân</h1>
-          <p className="text-gray-500 mt-2 font-medium">Lưu trữ toàn bộ giao dịch, kiểm soát đặt cọc, check-in, hủy đơn</p>
-        </div>
-        <div className="flex gap-3">
-          <Input.Search
-            placeholder="Tra cứu để in lại: mã BK, SĐT, tên..."
-            allowClear
-            size="large"
-            className="w-full sm:w-[340px]"
-            onChange={(e) => setSearchText(e.target.value)}
-            style={{ borderRadius: '12px' }}
-          />
-          <Button size="large" onClick={exportToExcel} className="font-bold text-gray-700 bg-white shadow-sm border border-gray-200 rounded-xl h-12 flex items-center hover:bg-gray-50">
-            <Download className="w-5 h-5 mr-2 text-emerald-600" />
-            Xuất Excel
-          </Button>
-          <Button size="large" type="primary" onClick={openScanner} className="bg-white text-blue-600 shadow-sm border border-blue-600 font-bold px-4 flex items-center hover:bg-blue-50 rounded-xl h-12">
-            <QrCode className="w-5 h-5 mr-2" />
-            Quét QR Check-in
-          </Button>
-          <Button size="large" type="primary" onClick={() => setIsPosOpen(true)} className="bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 shadow-lg shadow-orange-500/30 font-bold px-6 flex items-center border-0 rounded-xl h-12 hover:-translate-y-0.5 transition-all">
-            <Plus className="w-5 h-5 mr-1" />
-            Tạo Đơn (POS)
-          </Button>
+    <div className="space-y-6 pb-10">
+      {/* Thanh công cụ */}
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <p className="m-0 min-w-0 max-w-md text-sm text-stone-600">Theo dõi toàn bộ giao dịch, đặt cọc, check-in và hủy đơn. Dữ liệu tự làm mới mỗi 10 giây.</p>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="w-full sm:w-[280px]">
+            <Input.Search
+              placeholder="Tìm mã BK, SĐT, tên khách..."
+              aria-label="Tìm đơn đặt sân"
+              allowClear
+              size="large"
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button size="large" onClick={exportToExcel} icon={<Download size={18} aria-hidden="true" />}>
+              Xuất Excel
+            </Button>
+            <Button size="large" onClick={openScanner} icon={<QrCode size={18} aria-hidden="true" />}>
+              Quét QR
+            </Button>
+            <Button size="large" type="primary" onClick={() => setIsPosOpen(true)} icon={<Plus size={18} aria-hidden="true" />} className="col-span-2 sm:col-span-1">
+              Tạo đơn (POS)
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="mb-6 overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-[0_8px_30px_rgb(245,158,11,0.10)]">
-        <div className="flex flex-col gap-5 bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20">
-              <Landmark size={22} strokeWidth={2.5} />
-            </div>
+      {/* Hàng chờ hoàn tiền */}
+      <section className="card overflow-hidden" aria-labelledby="refund-queue-title">
+        <div className="flex flex-col gap-4 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100">
+              <Landmark size={20} aria-hidden="true" />
+            </span>
             <div>
-              <h2 className="text-lg font-black text-slate-950">Hàng chờ hoàn tiền</h2>
-              <p className="mt-1 text-sm text-slate-600">Đối chiếu ngân hàng và STK, chuyển tiền, sau đó mới xác nhận hoàn tất.</p>
+              <h2 id="refund-queue-title" className="m-0 text-base font-extrabold text-stone-950">Hàng chờ hoàn tiền</h2>
+              <p className="m-0 mt-0.5 text-sm text-stone-600">Đối chiếu ngân hàng và STK, chuyển tiền, sau đó mới xác nhận hoàn tất.</p>
             </div>
           </div>
-          <button
-            type="button"
+          <Button
+            type={pendingRefunds.length ? "primary" : "default"}
             onClick={() => setStatusFilter('refund_pending')}
-            className="min-h-11 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-amber-500 hover:text-slate-950"
+            className="self-start sm:self-auto"
           >
             Xử lý {pendingRefunds.length} yêu cầu
-          </button>
+          </Button>
         </div>
-        <div className="grid grid-cols-1 divide-y divide-slate-100 border-t border-amber-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          <div className="px-6 py-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Đang chờ hoàn</div>
-            <div className="mt-1 text-2xl font-black text-amber-600">{pendingRefunds.length}</div>
+        <div className="grid grid-cols-3 divide-x divide-stone-100">
+          <div className="px-4 py-3 sm:px-6">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Đang chờ</div>
+            <div className="mt-0.5 text-xl font-extrabold text-brand-700 tabular-nums">{pendingRefunds.length}</div>
           </div>
-          <div className="px-6 py-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Tổng cần hoàn</div>
-            <div className="mt-1 text-xl font-black text-slate-950">{formatCurrency(pendingRefundTotal)}</div>
+          <div className="px-4 py-3 sm:px-6">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Cần hoàn</div>
+            <div className="mt-0.5 truncate text-xl font-extrabold text-stone-950 tabular-nums">{formatCurrency(pendingRefundTotal)}</div>
           </div>
-          <div className="flex items-center gap-3 px-6 py-4">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CircleCheck size={18} /></span>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Đã hoàn</div>
-              <div className="mt-0.5 font-black text-emerald-700">{completedRefunds.length} đơn</div>
-            </div>
+          <div className="px-4 py-3 sm:px-6">
+            <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-stone-500"><CircleCheck size={12} className="text-emerald-600" aria-hidden="true" /> Đã hoàn</div>
+            <div className="mt-0.5 text-xl font-extrabold text-emerald-700 tabular-nums">{completedRefunds.length} <span className="text-sm font-bold">đơn</span></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-6 mb-6">
-        <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100 overflow-x-auto">
-          <span className="text-sm font-bold text-gray-500 flex items-center whitespace-nowrap uppercase tracking-wider"><Filter size={16} className="mr-2" /> Dùng Bộ Lọc:</span>
+      {/* Bảng đơn */}
+      <section className="card overflow-hidden" aria-label="Danh sách đơn đặt sân">
+        <div className="flex items-center gap-3 overflow-x-auto border-b border-stone-100 px-5 py-4 sm:px-6" role="toolbar" aria-label="Lọc theo trạng thái">
+          <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-500"><Filter size={14} aria-hidden="true" /> Lọc</span>
           <div className="flex gap-2">
-            {[
-              { key: 'all', label: 'Tất cả' },
-              { key: 'pending', label: 'Chờ duyệt' },
-              { key: 'confirmed', label: 'Đã duyệt' },
-              { key: 'completed', label: 'Hoàn thành' },
-              { key: 'cancelled', label: 'Đã hủy' },
-              { key: 'refund_pending', label: 'Chờ hoàn tiền' },
-            ].map(s => (
-              <button
-                key={s.key}
-                onClick={() => setStatusFilter(s.key)}
-                className={`px-5 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap border ${statusFilter === s.key ? 'bg-gray-900 border-gray-900 text-white shadow-md shadow-gray-900/20' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                {s.label}
-              </button>
-            ))}
+            {filterOptions.map(s => {
+              const count = s.key === 'all' ? bookings.length : s.key === 'refund_pending' ? bookings.filter((b) => b.refundStatus === 'pending').length : bookings.filter((b) => b.status === s.key).length;
+              const active = statusFilter === s.key;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setStatusFilter(s.key)}
+                  className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold transition-colors ${active ? 'border-brand-600 bg-brand-600 text-white' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700'}`}
+                >
+                  {s.label}
+                  <span className={`rounded-full px-1.5 text-[11px] font-bold tabular-nums ${active ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-500'}`}>{count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
+        {!pinColumns && <p className="m-0 border-b border-stone-100 px-5 py-2 text-xs text-stone-500">Vuốt ngang bảng để xem thanh toán, trạng thái và thao tác.</p>}
         <Table
           rowKey="id"
           dataSource={filteredBookings}
           columns={columns}
-          pagination={{ pageSize: 12, className: "mt-6", showSizeChanger: true }}
-          scroll={{ x: 1000 }}
+          size="middle"
+          tableLayout="fixed"
+          pagination={{ pageSize: 12, className: "!px-5 sm:!px-6", showSizeChanger: true }}
+          scroll={{ x: 1112 }}
           className="modern-table"
-          components={{
-            header: { cell: (props: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props} className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100 py-4 uppercase text-xs tracking-wider" /> }
-          }}
+          locale={{ emptyText: <div className="py-12 text-center"><Filter className="mx-auto mb-2 text-stone-300" aria-hidden="true" /><div className="font-semibold text-stone-700">Không có đơn phù hợp</div><div className="text-sm text-stone-500">Thử đổi bộ lọc hoặc từ khóa tìm kiếm.</div></div> }}
         />
-      </div>
+      </section>
 
       <Modal
         open={Boolean(ticketBooking)}
@@ -521,11 +591,11 @@ export default function AdminBookings() {
           <div className="py-6">
             <BookingPass booking={ticketBooking} />
             {ticketBooking.status === "confirmed" && (
-              <button type="button" onClick={() => markCheckIn(ticketBooking.id)} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500">
+              <button type="button" onClick={() => markCheckIn(ticketBooking.id)} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700">
                 Xác nhận thông tin đúng & Check-in
               </button>
             )}
-            <button type="button" onClick={() => setTicketBooking(null)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:border-amber-400 hover:bg-amber-50">
+            <button type="button" onClick={() => setTicketBooking(null)} className="mt-4 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-4 text-sm font-bold text-stone-700 hover:border-brand-400 hover:bg-brand-50">
               Đóng vé
             </button>
           </div>
@@ -544,10 +614,10 @@ export default function AdminBookings() {
           <div className="space-y-5 py-2">
             <div className="flex items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-100 text-rose-600"><Wrench size={21} /></span>
-              <div><div className="text-xs font-bold uppercase tracking-wider text-rose-600">Hủy đơn do phía sân</div><h2 className="mt-1 text-xl font-black text-slate-950">BK{String(operationsCancelBooking.id).padStart(6, "0")}</h2></div>
+              <div><div className="text-xs font-bold uppercase tracking-wider text-rose-600">Hủy đơn do phía sân</div><h2 className="m-0 mt-1 text-xl font-extrabold tabular-nums text-stone-950">BK{String(operationsCancelBooking.id).padStart(6, "0")}</h2></div>
             </div>
             <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Lý do hủy</label>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-stone-500">Lý do hủy</label>
               <Select
                 className="w-full"
                 value={operationsCancelReason}
@@ -558,12 +628,12 @@ export default function AdminBookings() {
                 ]}
               />
             </div>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+            <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-sm leading-6 text-brand-900">
               Khách sẽ được <strong>hoàn 100% số tiền đã thanh toán</strong>, không phụ thuộc thời gian còn lại. Khung giờ được nhả ngay sau khi xác nhận.
             </div>
             <div className="flex gap-3">
-              <button type="button" onClick={() => setOperationsCancelBooking(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Quay lại</button>
-              <button type="button" onClick={cancelForOperations} className="min-h-11 flex-1 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white hover:bg-rose-500">Xác nhận hủy</button>
+              <button type="button" onClick={() => setOperationsCancelBooking(null)} className="btn-outline min-h-11 flex-1 rounded-xl px-4 text-sm">Quay lại</button>
+              <button type="button" onClick={cancelForOperations} className="min-h-11 flex-1 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white transition hover:bg-rose-700">Xác nhận hủy</button>
             </div>
           </div>
         )}
@@ -580,22 +650,22 @@ export default function AdminBookings() {
       >
         {refundModalBooking && (
           <div className="-mx-6 -mt-5 overflow-hidden">
-            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-900 px-7 py-6 text-white">
+            <div className="bg-gradient-to-br from-brand-500 to-brand-700 px-7 py-6 text-white">
               <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-400 text-slate-950"><Landmark size={21} /></span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-white"><Landmark size={21} aria-hidden="true" /></span>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Xử lý hoàn tiền</p>
-                  <h2 className="mt-1 text-xl font-black">BK{String(refundModalBooking.id).padStart(6, "0")}</h2>
+                  <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-white/90">Xử lý hoàn tiền</p>
+                  <h2 className="m-0 mt-1 text-xl font-extrabold tabular-nums">BK{String(refundModalBooking.id).padStart(6, "0")}</h2>
                 </div>
               </div>
-              <div className="mt-5 border-t border-white/10 pt-4">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-300">Số tiền cần chuyển</div>
-                <div className="mt-1 text-3xl font-black text-amber-300">{formatCurrency(refundModalBooking.refundAmount || 0)}</div>
+              <div className="mt-5 border-t border-white/20 pt-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-white/90">Số tiền cần chuyển</div>
+                <div className="mt-1 text-3xl font-extrabold tabular-nums text-white">{formatCurrency(refundModalBooking.refundAmount || 0)}</div>
               </div>
             </div>
 
             <div className="space-y-4 bg-white px-7 py-6">
-              <p className="text-sm leading-6 text-slate-600">
+              <p className="text-sm leading-6 text-stone-600">
                 {refundModalBooking.refundReason === "duplicate_or_expired_payment"
                   ? "Thực hiện hoàn tiền theo giao dịch gốc trên cổng thanh toán, sau đó xác nhận kết quả cho khách."
                   : ["owner_cancelled", "maintenance", "reschedule_price_difference"].includes(refundModalBooking.refundReason || "")
@@ -603,41 +673,41 @@ export default function AdminBookings() {
                     : <>Thực hiện chuyển khoản theo thông tin bên dưới, sau đó mới bấm xác nhận để khách thấy trạng thái <strong>Đã hoàn tiền</strong>.</>}
               </p>
               {["duplicate_or_expired_payment", "owner_cancelled", "maintenance", "reschedule_price_difference"].includes(refundModalBooking.refundReason || "") ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-sm text-brand-900">
                   <div>Khách hàng: <strong>{refundModalBooking.customer?.fullName || "—"}</strong></div>
                   <div className="mt-2">Lý do: <strong>{refundModalBooking.refundReason === "duplicate_or_expired_payment" ? "Thanh toán dư hoặc quá hạn" : refundModalBooking.refundReason === "maintenance" ? "Bảo trì đột xuất" : refundModalBooking.refundReason === "reschedule_price_difference" ? "Chênh lệch do đổi lịch" : "Chủ sân hủy lịch"}</strong></div>
                   {refundModalBooking.refundPayments?.length ? (
-                    <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+                    <div className="mt-3 space-y-2 border-t border-brand-200 pt-3">
                       {refundModalBooking.refundPayments.map((payment) => (
                         <div key={payment.paymentCode} className="rounded-xl bg-white/70 p-3">
                           <div><span className="font-semibold">Cổng:</span> {(payment.gateway || "chưa xác định").toUpperCase()} {payment.bankCode ? "· " + payment.bankCode : ""}</div>
                           <div className="mt-1"><span className="font-semibold">Mã giao dịch:</span> <strong className="font-mono">{payment.transactionCode || "Chưa có"}</strong></div>
                           <div className="mt-1"><span className="font-semibold">Mã thanh toán:</span> <strong className="font-mono">{payment.paymentCode}</strong></div>
                           <div className="mt-1"><span className="font-semibold">Số tiền gốc:</span> {formatCurrency(payment.amount)}</div>
-                          {payment.bookingGroupId && <div className="mt-2 border-t border-amber-200 pt-2 text-xs leading-5 text-amber-800">Đây là giao dịch gốc cho toàn bộ lịch nhóm; số tiền cần hoàn ở trên chỉ thuộc booking con này.</div>}
+                          {payment.bookingGroupId && <div className="mt-2 border-t border-brand-200 pt-2 text-xs leading-5 text-brand-800">Đây là giao dịch gốc cho toàn bộ lịch nhóm; số tiền cần hoàn ở trên chỉ thuộc booking con này.</div>}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-3 rounded-xl border border-amber-300 bg-white/70 p-3">
+                    <div className="mt-3 rounded-xl border border-brand-300 bg-white/70 p-3">
                       Không tìm thấy giao dịch điện tử. Phương thức: <strong>{refundModalBooking.paymentMethod === "cash" ? "Tiền mặt tại sân" : refundModalBooking.paymentMethod}</strong> · SĐT khách: <strong>{refundModalBooking.customer?.phone || "—"}</strong>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-950"><UserRound size={16} className="text-amber-600" /> Người nhận hoàn tiền</div>
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-black text-stone-950"><UserRound size={16} className="text-brand-600" /> Người nhận hoàn tiền</div>
                   <div className="space-y-3 text-sm">
-                    <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Khách hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.customer?.fullName || "—"}</div></div>
-                    <div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Ngân hàng</div><div className="mt-0.5 font-bold text-slate-900">{refundModalBooking.refundBank || "Chưa cung cấp"}</div></div>
-                    <div className="flex items-end justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Số tài khoản</div><div className="mt-0.5 font-mono text-base font-black text-slate-950">{refundModalBooking.refundStk || "Chưa cung cấp"}</div></div><button type="button" onClick={() => copyRefundValue(refundModalBooking.refundStk || "", "số tài khoản")} disabled={!refundModalBooking.refundStk} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"><Copy size={14} /> Sao chép</button></div>
-                    <div className="flex items-end justify-between gap-3 border-t border-slate-200 pt-3"><div><div className="text-xs font-bold uppercase tracking-wider text-slate-400">Nội dung chuyển khoản</div><div className="mt-0.5 font-mono font-black text-slate-950">HOAN BK{String(refundModalBooking.id).padStart(6, "0")}</div></div><button type="button" onClick={() => copyRefundValue(`HOAN BK${String(refundModalBooking.id).padStart(6, "0")}`, "nội dung chuyển khoản")} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Copy size={14} /> Sao chép</button></div>
+                    <div><div className="text-xs font-bold uppercase tracking-wider text-stone-500">Khách hàng</div><div className="mt-0.5 font-bold text-stone-900">{refundModalBooking.customer?.fullName || "—"}</div></div>
+                    <div><div className="text-xs font-bold uppercase tracking-wider text-stone-500">Ngân hàng</div><div className="mt-0.5 font-bold text-stone-900">{refundModalBooking.refundBank || "Chưa cung cấp"}</div></div>
+                    <div className="flex items-end justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wider text-stone-500">Số tài khoản</div><div className="mt-0.5 font-mono text-base font-black text-stone-950">{refundModalBooking.refundStk || "Chưa cung cấp"}</div></div><button type="button" onClick={() => copyRefundValue(refundModalBooking.refundStk || "", "số tài khoản")} disabled={!refundModalBooking.refundStk} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 text-xs font-bold text-stone-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-40"><Copy size={14} /> Sao chép</button></div>
+                    <div className="flex items-end justify-between gap-3 border-t border-stone-200 pt-3"><div><div className="text-xs font-bold uppercase tracking-wider text-stone-500">Nội dung chuyển khoản</div><div className="mt-0.5 font-mono font-black text-stone-950">HOAN BK{String(refundModalBooking.id).padStart(6, "0")}</div></div><button type="button" onClick={() => copyRefundValue(`HOAN BK${String(refundModalBooking.id).padStart(6, "0")}`, "nội dung chuyển khoản")} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 text-xs font-bold text-stone-700"><Copy size={14} /> Sao chép</button></div>
                   </div>
                 </div>
               )}
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setRefundModalBooking(null)} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Quay lại</button>
-                <button type="button" onClick={() => completeRefund(refundModalBooking)} className="min-h-11 flex-1 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500">Xác nhận đã chuyển tiền</button>
+                <button type="button" onClick={() => setRefundModalBooking(null)} className="btn-outline min-h-11 flex-1 rounded-xl px-4 text-sm">Quay lại</button>
+                <button type="button" onClick={() => completeRefund(refundModalBooking)} className="min-h-11 flex-1 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700">Xác nhận đã chuyển tiền</button>
               </div>
             </div>
           </div>
@@ -645,57 +715,59 @@ export default function AdminBookings() {
       </Modal>
 
       <Modal
-        title={<span className="font-bold text-lg">Quét mã QR Check-in</span>}
+        title={<span className="flex items-center gap-2 text-lg font-extrabold text-stone-950"><QrCode size={20} className="text-brand-600" aria-hidden="true" /> Quét mã QR Check-in</span>}
         open={isScannerOpen}
         onCancel={closeScanner}
         footer={null}
         destroyOnClose
         className="rounded-2xl overflow-hidden"
       >
-        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-4 text-center text-sm font-medium text-gray-600">
+        <div className="bg-stone-50 p-4 rounded-xl border border-stone-100 mb-4 text-center text-sm font-medium text-stone-600">
           Hãy đưa mã QR của khách hàng vào khung hình bên dưới
         </div>
-        <div id="qr-reader" className="w-full rounded-2xl overflow-hidden border-2 border-dashed border-blue-200"></div>
+        <div id="qr-reader" className="w-full rounded-2xl overflow-hidden border-2 border-dashed border-brand-200"></div>
       </Modal>
 
       <Modal
-        title={<div className="font-black text-xl flex items-center gap-2"><Zap className="text-amber-500" /> Web POS - Đặt Sân Nhanh</div>}
+        title={<div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100"><Zap size={20} aria-hidden="true" /></span><div><div className="text-lg font-extrabold text-stone-950">Web POS - Đặt Sân Nhanh</div><div className="text-xs font-medium text-stone-500">Kiểm tra lịch trống rồi tạo đơn tại quầy</div></div></div>}
         open={isPosOpen}
         onCancel={() => setIsPosOpen(false)}
         footer={null}
         width={700}
         className="rounded-2xl overflow-hidden"
       >
-        <Form form={posForm} layout="vertical" onFinish={handlePosSubmit} className="mt-6">
-          <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="fullName" label={<span className="font-semibold text-gray-700">Tên khách hàng</span>} rules={[{ required: true }]}>
+        <Form form={posForm} layout="vertical" onFinish={handlePosSubmit} className="mt-6" requiredMark={false}>
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Khách hàng</div>
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            <Form.Item name="fullName" label={<span className="font-semibold text-stone-700">Tên khách hàng</span>} rules={[{ required: true }]}>
               <Input size="large" placeholder="Nhập tên" className="rounded-xl" />
             </Form.Item>
-            <Form.Item name="phone" label={<span className="font-semibold text-gray-700">Số điện thoại</span>} rules={[{ required: true }]}>
+            <Form.Item name="phone" label={<span className="font-semibold text-stone-700">Số điện thoại</span>} rules={[{ required: true }]}>
               <Input size="large" placeholder="Nhập SĐT" className="rounded-xl" />
             </Form.Item>
           </div>
 
-          <Divider dashed />
+          <Divider className="!my-3" />
 
-          <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="courtId" label={<span className="font-semibold text-gray-700">Chọn Sân</span>} rules={[{ required: true }]}>
-              <Select size="large" className="rounded-xl" placeholder="-- Chọn sân --">
-                {courts.map(c => <Select.Option key={c.id} value={c.id}>{c.name} - Giá: {formatCurrency(c.price)}</Select.Option>)}
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-700">Lịch đặt</div>
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            <Form.Item name="courtId" label={<span className="font-semibold text-stone-700">Chọn Sân</span>} rules={[{ required: true }]}>
+              <Select size="large" className="rounded-xl" placeholder="-- Chọn sân --" notFoundContent="Chưa có sân bóng rổ nào đang hoạt động">
+                {posCourts.map(c => <Select.Option key={c.id} value={c.id}>{c.name} - Giá: {formatCurrency(c.price)}</Select.Option>)}
               </Select>
             </Form.Item>
-            <div className="grid grid-cols-2 gap-2">
-              <Form.Item name="date" label={<span className="font-semibold text-gray-700">Ngày đặt</span>} rules={[{ required: true }]}>
+            <div className="grid grid-cols-2 gap-x-3">
+              <Form.Item name="date" label={<span className="font-semibold text-stone-700">Ngày đặt</span>} rules={[{ required: true }]}>
                 <DatePicker size="large" className="w-full rounded-xl" format="DD/MM/YYYY" placeholder="Chọn ngày" />
               </Form.Item>
-              <Form.Item name="time" label={<span className="font-semibold text-gray-700">Giờ bắt đầu</span>} rules={[{ required: true }]}>
+              <Form.Item name="time" label={<span className="font-semibold text-stone-700">Giờ bắt đầu</span>} rules={[{ required: true }]}>
                 <TimePicker size="large" className="w-full rounded-xl" format="HH:mm" minuteStep={30} placeholder="Giờ" />
               </Form.Item>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <Form.Item name="kiosk" label={<span className="font-semibold text-gray-700">Dịch vụ (Kiosk)</span>}>
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            <Form.Item name="kiosk" label={<span className="font-semibold text-stone-700">Dịch vụ (Kiosk)</span>}>
               <Select mode="multiple" size="large" className="rounded-xl" placeholder="Chọn đồ uống/thuê giày">
                 <Select.Option value="nuoc_suoi">Nước Suối (10k)</Select.Option>
                 <Select.Option value="redbull">Bò Húc (20k)</Select.Option>
@@ -703,29 +775,29 @@ export default function AdminBookings() {
                 <Select.Option value="thue_bong">Thuê Bóng (20k)</Select.Option>
               </Select>
             </Form.Item>
-            <Form.Item name="voucher" label={<span className="font-semibold text-gray-700">Mã giảm giá (Voucher)</span>}>
-              <Input size="large" className="rounded-xl font-bold uppercase text-red-500" placeholder="Nhập mã KM" />
+            <Form.Item name="voucher" label={<span className="font-semibold text-stone-700">Mã giảm giá (Voucher)</span>}>
+              <Input size="large" className="rounded-xl font-bold uppercase text-brand-700" placeholder="Nhập mã KM" />
             </Form.Item>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 border-t border-gray-100 pt-4">
-            <Form.Item name="duration" label={<span className="font-semibold text-gray-700">Thời lượng (giờ)</span>} initialValue={1} rules={[{ required: true }]}>
-              <InputNumber min={0.5} step={0.5} size="large" className="w-full rounded-xl" />
+          <div className="-mx-1 grid grid-cols-1 gap-x-4 rounded-2xl bg-stone-50 px-4 pt-4 ring-1 ring-stone-100 sm:grid-cols-3">
+            <Form.Item name="duration" label={<span className="font-semibold text-stone-700">Thời lượng (giờ)</span>} initialValue={1} rules={[{ required: true }]}>
+              <InputNumber min={0.5} step={0.5} size="large" className="w-full rounded-xl" style={{ width: "100%" }} />
             </Form.Item>
-            <Form.Item name="paymentMethod" label={<span className="font-semibold text-gray-700">Thanh toán</span>} rules={[{ required: true }]}>
-              <Select size="large" className="rounded-xl">
+            <Form.Item name="paymentMethod" label={<span className="font-semibold text-stone-700">Thanh toán</span>} rules={[{ required: true }]}>
+              <Select size="large" className="rounded-xl" placeholder="Chọn hình thức">
                 <Select.Option value="cash">Tiền mặt tại sân</Select.Option>
                 <Select.Option value="full">Chuyển khoản 100%</Select.Option>
                 <Select.Option value="deposit">Thu sau</Select.Option>
               </Select>
             </Form.Item>
-            <Form.Item name="total" label={<span className="font-semibold text-gray-700">Tổng thu (VNĐ)</span>} rules={[{ required: true }]}>
-              <InputNumber size="large" className="w-full rounded-xl border-emerald-300 bg-emerald-50 text-emerald-700 font-bold" />
+            <Form.Item name="total" label={<span className="font-semibold text-stone-700">Tổng thu (VNĐ)</span>} rules={[{ required: true }]}>
+              <InputNumber size="large" className="w-full rounded-xl font-bold" style={{ width: "100%" }} placeholder="0" />
             </Form.Item>
           </div>
 
-          <Button type="primary" htmlType="submit" size="large" block className="mt-4 bg-emerald-600 hover:bg-emerald-700 h-12 text-lg font-black tracking-wide shadow-lg shadow-emerald-500/30 rounded-xl">
-            CHỐT ĐƠN & TẠO BOOKING
+          <Button type="primary" htmlType="submit" size="large" block loading={posSubmitting} className="mt-5 !h-12 !text-base !font-bold">
+            Chốt đơn & tạo booking
           </Button>
         </Form>
       </Modal>

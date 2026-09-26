@@ -30,54 +30,78 @@ export default function VnPaySandbox() {
         window.location.href = `http://localhost:5173/vnpay-return${location.search}&vnp_ResponseCode=00`;
     }
 
+    const fieldLabel = "block text-xs font-bold uppercase tracking-wider text-stone-600";
+    const fieldInput = "input mt-2 text-sm";
+
     return (
-        <div className="min-h-screen bg-black text-gray-200 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,197,66,0.16),transparent_35%),linear-gradient(135deg,#050505,#18130a)] pointer-events-none" />
-            <div className="relative z-10 sm:mx-auto w-full max-w-5xl">
-                <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-8 items-stretch">
-                    <div className="flex flex-col justify-between rounded-3xl border border-yellow-500/20 bg-zinc-900/80 p-8 shadow-2xl shadow-yellow-500/5 backdrop-blur-xl">
-                        <div>
-                            <div className="flex items-center gap-3 mb-8"><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center shadow-lg shadow-yellow-500/20"><CreditCard className="w-6 h-6" /></div><div><div className="text-white font-black text-lg">Golden<span className="text-yellow-400">Pay</span></div><div className="text-[10px] text-gray-500 uppercase tracking-[0.2em]">Secure checkout</div></div></div>
-                            <div className="inline-flex items-center gap-2 rounded-full bg-red-500/10 border border-red-500/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-300"><Sparkles className="w-3.5 h-3.5" /> Môi trường giả lập</div>
-                            <h1 className="mt-5 text-3xl sm:text-4xl font-black text-white leading-tight">Hoàn tất thanh toán sân đấu</h1>
-                            <p className="mt-4 text-sm leading-relaxed text-gray-400">Màn hình mô phỏng VNPAY dùng để kiểm thử luồng thanh toán và chuyển tiếp kết quả về hệ thống.</p>
+        <div className="relative min-h-screen overflow-hidden bg-surface px-4 py-10 text-stone-700 sm:px-6 lg:px-8 lg:py-16">
+            <div className="brand-grid pointer-events-none absolute inset-0 opacity-60" aria-hidden="true" />
+            <div className="relative z-10 mx-auto w-full max-w-5xl">
+                <div className="grid items-stretch gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:gap-8">
+                    <div className="relative flex flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-brand-500 to-brand-700 p-8 text-white shadow-brand animate-fade-in-up">
+                        <div className="absolute -right-14 -top-14 h-52 w-52 rounded-full border-[28px] border-white/10" aria-hidden="true" />
+                        <div className="relative">
+                            <div className="mb-8 flex items-center gap-3">
+                                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-brand-600 shadow-soft"><CreditCard className="h-6 w-6" aria-hidden="true" /></div>
+                                <div>
+                                    <div className="text-lg font-black">GoldenPay</div>
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">Secure checkout</div>
+                                </div>
+                            </div>
+                            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-brand-800"><Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Môi trường giả lập</div>
+                            <h1 className="mt-5 text-3xl font-extrabold leading-tight sm:text-4xl">Hoàn tất thanh toán sân đấu</h1>
+                            <p className="mt-4 text-sm leading-relaxed text-white/90">Màn hình mô phỏng VNPAY dùng để kiểm thử luồng thanh toán và chuyển tiếp kết quả về hệ thống.</p>
                         </div>
-                        <div className="mt-10 space-y-3 text-sm text-gray-300"><div className="flex items-center gap-3"><ShieldCheck className="w-5 h-5 text-yellow-400" /> Kết nối mô phỏng được bảo vệ</div><div className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-emerald-400" /> Xác nhận tức thì sau khi gửi biểu mẫu</div></div>
+                        <ul className="relative mt-10 space-y-3 text-sm font-medium">
+                            <li className="flex items-center gap-3"><ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" /> Kết nối mô phỏng được bảo vệ</li>
+                            <li className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" /> Xác nhận tức thì sau khi gửi biểu mẫu</li>
+                        </ul>
                     </div>
 
-                    <div className="bg-zinc-900 rounded-3xl border border-white/10 p-6 sm:p-8 shadow-2xl">
-                        <div className="flex items-center justify-between gap-4 mb-6"><div><p className="text-xs uppercase tracking-widest text-gray-500 font-bold">Cổng thanh toán</p><h2 className="text-xl font-black text-white mt-1">VNPAY Sandbox</h2></div><LockKeyhole className="w-5 h-5 text-yellow-400" /></div>
-                        <div className="mb-7 bg-black/60 p-5 rounded-2xl border border-yellow-500/20"><p className="text-xs font-bold uppercase tracking-wider text-gray-500">Đơn hàng</p><p className="mt-1 text-sm font-bold text-white break-all">{orderInfo || "Đơn đặt sân"}</p><div className="mt-4 flex items-end justify-between gap-4"><span className="text-xs text-gray-500">Tổng thanh toán</span><span className="text-2xl font-black text-yellow-400">{amount.toLocaleString("vi-VN")} <span className="text-sm">VND</span></span></div></div>
-
-                    <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); handlePay(); }}>
-                        <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Số thẻ hoặc mã thẻ nội địa</label>
-                            <input value={card} onChange={e => setCard(e.target.value)} placeholder="9704198526191432" className="mt-2 block w-full border border-white/10 bg-black rounded-xl py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-yellow-500 focus:ring-4 focus:ring-yellow-500/10 sm:text-sm" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Tên in trên thẻ</label>
-                            <input value={name} onChange={e => setName(e.target.value)} placeholder="NGUYEN VAN A" className="mt-2 block w-full border border-white/10 bg-black rounded-xl py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-yellow-500 focus:ring-4 focus:ring-yellow-500/10 sm:text-sm uppercase" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="card p-6 sm:p-8 animate-fade-in-up delay-100">
+                        <div className="mb-6 flex items-center justify-between gap-4">
                             <div>
-                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Ngày phát hành</label>
-                                <input value={date} onChange={e => setDate(e.target.value)} placeholder="07/15" className="mt-2 block w-full border border-white/10 bg-black rounded-xl py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-yellow-500 focus:ring-4 focus:ring-yellow-500/10 sm:text-sm" />
+                                <p className="eyebrow">Cổng thanh toán</p>
+                                <h2 className="mt-1 text-xl font-extrabold text-stone-950">VNPAY Sandbox</h2>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Mã xác thực OTP</label>
-                                <input value={otp} onChange={e => setOtp(e.target.value)} placeholder="123456" className="mt-2 block w-full border border-white/10 bg-black rounded-xl py-3 px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-yellow-500 focus:ring-4 focus:ring-yellow-500/10 sm:text-sm" />
+                            <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100" aria-label="Kết nối bảo mật"><LockKeyhole className="h-5 w-5" aria-hidden="true" /></span>
+                        </div>
+                        <div className="mb-7 rounded-2xl border border-brand-200 bg-brand-50/60 p-5">
+                            <p className="text-xs font-bold uppercase tracking-wider text-stone-600">Đơn hàng</p>
+                            <p className="mt-1 break-all text-sm font-bold text-stone-900">{orderInfo || "Đơn đặt sân"}</p>
+                            <div className="mt-4 flex items-end justify-between gap-4 border-t border-dashed border-brand-200 pt-4">
+                                <span className="text-xs font-semibold text-stone-600">Tổng thanh toán</span>
+                                <span className="text-2xl font-black tabular-nums text-stone-950">{amount.toLocaleString("vi-VN")} <span className="text-sm text-brand-700">VND</span></span>
                             </div>
                         </div>
 
-                        <div>
-                            <button type="submit" className="w-full flex justify-center items-center gap-2 py-3.5 px-4 rounded-xl shadow-lg shadow-yellow-500/20 text-sm font-black text-black bg-yellow-500 hover:bg-yellow-400 transition-all hover:-translate-y-0.5 focus:outline-none">
-                                Xác nhận thanh toán <ArrowRight className="w-4 h-4" />
+                        <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); handlePay(); }}>
+                            <div>
+                                <label htmlFor="sandbox-card" className={fieldLabel}>Số thẻ hoặc mã thẻ nội địa</label>
+                                <input id="sandbox-card" value={card} onChange={e => setCard(e.target.value)} placeholder="9704198526191432" inputMode="numeric" autoComplete="cc-number" className={fieldInput + " font-mono tracking-wider"} />
+                            </div>
+                            <div>
+                                <label htmlFor="sandbox-name" className={fieldLabel}>Tên in trên thẻ</label>
+                                <input id="sandbox-name" value={name} onChange={e => setName(e.target.value)} placeholder="NGUYEN VAN A" autoComplete="cc-name" className={fieldInput + " uppercase"} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label htmlFor="sandbox-date" className={fieldLabel}>Ngày phát hành</label>
+                                    <input id="sandbox-date" value={date} onChange={e => setDate(e.target.value)} placeholder="07/15" className={fieldInput} />
+                                </div>
+                                <div>
+                                    <label htmlFor="sandbox-otp" className={fieldLabel}>Mã xác thực OTP</label>
+                                    <input id="sandbox-otp" value={otp} onChange={e => setOtp(e.target.value)} placeholder="123456" inputMode="numeric" autoComplete="one-time-code" className={fieldInput + " font-mono tracking-widest"} />
+                                </div>
+                            </div>
+
+                            <button type="submit" className="btn-primary w-full min-h-12 rounded-xl text-sm">
+                                Xác nhận thanh toán <ArrowRight className="h-4 w-4" aria-hidden="true" />
                             </button>
-                        </div>
-                        <p className="text-xs text-gray-500 text-center">Bạn có thể dùng dữ liệu giả lập để kiểm thử nút thanh toán.</p>
-                    </form>
+                            <p className="text-center text-xs text-stone-500">Bạn có thể dùng dữ liệu giả lập để kiểm thử nút thanh toán.</p>
+                        </form>
+                    </div>
                 </div>
-            </div>
             </div>
         </div>
     );

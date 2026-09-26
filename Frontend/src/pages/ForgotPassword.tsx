@@ -1,13 +1,17 @@
+import { useState } from "react";
 import { Form, Input, Button } from "antd";
-import { ArrowLeft, KeyRound, Mail } from "lucide-react";
+import { ArrowLeft, KeyRound, Mail, ShieldCheck, Timer } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { api } from "../lib/api";
+import { AuthShell, AuthCardHeader } from "./Login";
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
+  const [submitting, setSubmitting] = useState(false);
 
   const onFinish = async (values: { email: string }) => {
+    setSubmitting(true);
     try {
       const response = await api.post<{ message: string; resetToken?: string }>(
         "/forgot-password",
@@ -18,32 +22,36 @@ export default function ForgotPassword() {
       if (token) {
         navigate(`/reset-password?token=${encodeURIComponent(token)}`);
       }
-    } catch (error: any) {
-      toast.error(error?.response?.data?.message || "Không thể gửi yêu cầu. Vui lòng thử lại.");
+    } catch (error) {
+      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Không thể gửi yêu cầu. Vui lòng thử lại.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-black px-4 py-12 flex items-center justify-center relative overflow-hidden">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-yellow-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="w-full max-w-[460px] rounded-3xl bg-zinc-900 border border-white/10 p-8 shadow-2xl sm:p-10 relative z-10">
-        <Link to="/login" className="mb-6 inline-flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-yellow-400 transition-colors uppercase tracking-wider">
-          <ArrowLeft className="h-4 w-4" /> Quay lại đăng nhập
+    <AuthShell
+      eyebrow="Khôi phục tài khoản"
+      headline="Quên mật khẩu?"
+      accent="Đừng lo lắng"
+      description="Chỉ cần email đã đăng ký, bạn sẽ nhận liên kết đặt lại mật khẩu và quay lại sân ngay."
+      highlights={[
+        { icon: Mail, text: "Nhận liên kết qua email đăng ký" },
+        { icon: ShieldCheck, text: "Liên kết bảo mật, dùng một lần" },
+        { icon: Timer, text: "Hoàn tất chỉ trong vài phút" },
+      ]}
+    >
+      <div className="card p-6 sm:p-8">
+        <Link to="/login" className="-ml-2 mb-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-stone-600 transition-colors hover:text-brand-700">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Quay lại đăng nhập
         </Link>
-        
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 shadow-lg shadow-yellow-500/10 mb-4">
-          <KeyRound className="h-8 w-8" />
-        </div>
-        
-        <h1 className="text-center text-2xl font-black text-white">Quên Mật Khẩu?</h1>
-        <p className="mb-8 mt-2 text-center text-gray-400 text-xs leading-relaxed">
-          Nhập địa chỉ email đăng ký để nhận liên kết xác thực đặt lại mật khẩu mới.
-        </p>
 
-        <Form layout="vertical" onFinish={onFinish}>
+        <AuthCardHeader icon={KeyRound} title="Quên mật khẩu" description="Nhập địa chỉ email đăng ký để nhận liên kết đặt lại mật khẩu mới." />
+
+        <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
           <Form.Item
             name="email"
+            label={<span className="text-sm font-semibold text-stone-700">Email</span>}
             rules={[
               { required: true, message: "Vui lòng nhập email" },
               { type: "email", message: "Email không hợp lệ" },
@@ -51,29 +59,25 @@ export default function ForgotPassword() {
           >
             <Input
               size="large"
-              prefix={<Mail className="text-gray-500 mr-2 h-4 w-4" />}
-              placeholder="Nhập email của bạn"
-              className="!bg-black !border-white/10 !text-white !rounded-xl hover:!border-yellow-500 focus:!border-yellow-500 !h-12"
+              prefix={<Mail className="mr-1 h-4 w-4 text-stone-400" aria-hidden="true" />}
+              placeholder="ban@email.com"
+              autoComplete="email"
+              className="!h-12 !rounded-xl"
             />
           </Form.Item>
-          
-          <Button
-            htmlType="submit"
-            block
-            size="large"
-            className="!h-12 !rounded-xl !bg-yellow-500 !text-black hover:!bg-yellow-400 !font-extrabold !border-none !shadow-lg !shadow-yellow-500/20"
-          >
-            Gửi yêu cầu đặt lại mật khẩu
+
+          <Button htmlType="submit" type="primary" block size="large" loading={submitting} className="btn-primary !h-12 !rounded-xl !border-none !text-base !font-bold">
+            {submitting ? "Đang gửi yêu cầu…" : "Gửi yêu cầu đặt lại mật khẩu"}
           </Button>
         </Form>
 
-        <p className="mt-8 text-center text-xs text-gray-400">
+        <div className="mt-7 border-t border-stone-100 pt-6 text-center text-sm text-stone-600">
           Đã nhớ lại mật khẩu?{" "}
-          <Link to="/login" className="font-bold text-yellow-400 hover:underline">
+          <Link to="/login" className="font-bold text-brand-700 hover:text-brand-800 hover:underline">
             Đăng nhập ngay
           </Link>
-        </p>
+        </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

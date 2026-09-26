@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Phone,
   Send,
+  Zap,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -27,21 +28,24 @@ export default function Contact() {
     toast.success("Đã gửi lời nhắn đến Ban quản trị GoldenState!");
   };
 
+  const labelClass = "mb-2 block text-sm font-semibold text-stone-700";
+
   return (
-    <div className="bg-black text-gray-200 min-h-screen">
+    <div className="min-h-screen bg-surface text-stone-700">
       {/* Header Banner */}
-      <section className="bg-zinc-950 border-b border-white/5 px-4 py-20 sm:px-6 lg:px-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="mx-auto max-w-7xl relative z-10">
+      <section className="relative overflow-hidden border-b border-stone-200 bg-white px-4 pb-14 pt-14 sm:px-6 sm:pt-20 lg:px-8">
+        <div className="brand-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_top_right,black_20%,transparent_70%)]" aria-hidden="true" />
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-brand-200/50 blur-3xl" aria-hidden="true" />
+
+        <div className="relative mx-auto max-w-7xl animate-fade-in-up">
           <div className="max-w-2xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-yellow-400">
-              <MessageSquare className="h-4 w-4" /> Luôn sẵn sàng hỗ trợ bạn
-            </div>
-            <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
-              Liên Hệ Golden State
+            <span className="eyebrow rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5">
+              <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" /> Luôn sẵn sàng hỗ trợ bạn
+            </span>
+            <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-stone-950 sm:text-5xl">
+              Liên hệ <span className="text-gradient-brand">GoldenState</span>
             </h1>
-            <p className="mt-4 text-base leading-relaxed text-gray-400 sm:text-lg">
+            <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-stone-600 sm:text-lg">
               Bạn cần hỗ trợ đặt sân, hợp tác nhượng quyền sân bóng hay có câu hỏi cần giải đáp? Hãy gửi tin nhắn cho chúng tôi.
             </p>
           </div>
@@ -49,53 +53,64 @@ export default function Contact() {
       </section>
 
       {/* Main Content */}
-      <main className="mx-auto grid max-w-7xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-[.8fr_1.2fr] lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[.85fr_1.15fr] lg:gap-8 lg:px-8">
         {/* Contact Info Card */}
-        <section className="rounded-3xl bg-zinc-900 border border-white/10 p-8 text-white shadow-2xl relative overflow-hidden h-fit">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
-          
-          <p className="text-xs font-bold uppercase tracking-widest text-yellow-400">Kênh kết nối trực tiếp</p>
-          <h2 className="mt-2 text-2xl font-black">Thông Tin Liên Lạc</h2>
-          <p className="mt-2 text-xs text-gray-400 leading-relaxed">
-            Đội ngũ CSKH và kỹ thuật viên túc trực liên tục để đảm bảo trận đấu của bạn diễn ra thuận lợi.
-          </p>
+        <section className="relative h-fit overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 via-brand-600 to-brand-800 p-6 text-white shadow-brand sm:p-8" data-reveal>
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-brand-400/40 blur-3xl" aria-hidden="true" />
+          <svg viewBox="0 0 24 24" className="pointer-events-none absolute -bottom-16 -right-16 h-64 w-64 text-white/10" fill="none" stroke="currentColor" strokeWidth={1} aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3v18" />
+            <path d="M5.6 5.6c2.6 2.2 3.9 4.3 3.9 6.4s-1.3 4.2-3.9 6.4M18.4 5.6c-2.6 2.2-3.9 4.3-3.9 6.4s1.3 4.2 3.9 6.4" />
+          </svg>
 
-          <div className="mt-8 space-y-6">
-            {contactDetails.map(({ icon: Icon, label, value }) => (
-              <div key={label} className="flex gap-4 items-start">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black border border-white/10 text-yellow-400">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</p>
-                  <p className="mt-0.5 text-sm font-semibold text-white">{value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="relative">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-white/85">Kênh kết nối trực tiếp</p>
+            <h2 className="mt-2 text-2xl font-extrabold">Thông tin liên lạc</h2>
+            <p className="mt-2 text-sm leading-relaxed text-white/90">
+              Đội ngũ CSKH và kỹ thuật viên túc trực liên tục để đảm bảo trận đấu của bạn diễn ra thuận lợi.
+            </p>
 
-          <div className="mt-10 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4 text-xs leading-relaxed text-yellow-300">
-            ⚡ Chúng tôi cam kết phản hồi các yêu cầu đặt sân và hỗ trợ kỹ thuật trong vòng 15 phút làm việc.
+            <ul className="mt-8 space-y-3">
+              {contactDetails.map(({ icon: Icon, label, value }) => (
+                <li key={label} className="flex items-start gap-4 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-brand-600">
+                    <Icon className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wider text-white/80">{label}</p>
+                    <p className="mt-0.5 break-words text-sm font-semibold text-white">{value}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-6 flex items-start gap-3 rounded-2xl bg-white p-4 text-sm leading-relaxed text-stone-700">
+              <Zap className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden="true" />
+              Chúng tôi cam kết phản hồi các yêu cầu đặt sân và hỗ trợ kỹ thuật trong vòng 15 phút làm việc.
+            </div>
           </div>
         </section>
 
         {/* Message Form */}
-        <section className="rounded-3xl border border-white/5 bg-zinc-900 p-8 shadow-2xl">
+        <section className="card p-6 sm:p-8" data-reveal style={{ "--reveal-index": 1 } as React.CSSProperties}>
           <div className="mb-8">
-            <p className="text-xs font-bold uppercase tracking-widest text-yellow-400">Gửi lời nhắn</p>
-            <h2 className="mt-1 text-2xl font-black text-white">Bạn đang cần chúng tôi hỗ trợ điều gì?</h2>
+            <span className="eyebrow">Gửi lời nhắn</span>
+            <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-stone-950">Bạn đang cần chúng tôi hỗ trợ điều gì?</h2>
           </div>
 
           {sent ? (
-            <div className="flex min-h-[350px] flex-col items-center justify-center rounded-2xl bg-black border border-white/5 p-8 text-center">
-              <CheckCircle2 className="h-16 w-16 text-yellow-400 mb-4" />
-              <h3 className="text-2xl font-extrabold text-white">Cảm ơn bạn đã liên hệ!</h3>
-              <p className="mt-2 max-w-sm text-sm text-gray-400 leading-relaxed">
+            <div className="flex min-h-[350px] flex-col items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center animate-scale-in" role="status">
+              <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-white text-emerald-600 shadow-soft">
+                <CheckCircle2 className="h-9 w-9" aria-hidden="true" />
+              </span>
+              <h3 className="text-2xl font-extrabold text-stone-950">Cảm ơn bạn đã liên hệ!</h3>
+              <p className="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
                 Tin nhắn của bạn đã được chuyển tới bộ phận chăm sóc khách hàng của GoldenState. Chúng tôi sẽ phản hồi sớm nhất!
               </p>
               <button
+                type="button"
                 onClick={() => setSent(false)}
-                className="mt-6 btn-outline px-6 py-2.5 rounded-xl text-xs font-bold"
+                className="btn-outline mt-6 min-h-11 rounded-xl px-6 text-sm"
               >
                 Gửi lời nhắn khác
               </button>
@@ -104,58 +119,42 @@ export default function Contact() {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Họ và tên *</label>
-                  <input
-                    required
-                    name="name"
-                    placeholder="Nguyễn Văn A"
-                    className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
-                  />
+                  <label htmlFor="contact-name" className={labelClass}>Họ và tên <span className="text-rose-600">*</span></label>
+                  <input id="contact-name" required name="name" autoComplete="name" placeholder="Nguyễn Văn A" className="input" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email liên hệ *</label>
-                  <input
-                    required
-                    type="email"
-                    name="email"
-                    placeholder="you@example.com"
-                    className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
-                  />
+                  <label htmlFor="contact-email" className={labelClass}>Email liên hệ <span className="text-rose-600">*</span></label>
+                  <input id="contact-email" required type="email" name="email" autoComplete="email" placeholder="you@example.com" className="input" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Số điện thoại *</label>
-                <input
-                  required
-                  type="tel"
-                  name="phone"
-                  placeholder="081 22 88 111"
-                  className="w-full rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
-                />
+                <label htmlFor="contact-phone" className={labelClass}>Số điện thoại <span className="text-rose-600">*</span></label>
+                <input id="contact-phone" required type="tel" name="phone" autoComplete="tel" placeholder="081 22 88 111" className="input" />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Nội dung chi tiết *</label>
+                <label htmlFor="contact-message" className={labelClass}>Nội dung chi tiết <span className="text-rose-600">*</span></label>
                 <textarea
+                  id="contact-message"
                   required
                   name="message"
                   rows={5}
                   placeholder="Hãy chia sẻ thông tin về yêu cầu hỗ trợ, thắc mắc lịch đặt sân hoặc hợp tác..."
-                  className="w-full resize-none rounded-xl bg-black border border-white/10 px-4 py-3 text-sm text-white outline-none transition focus:border-yellow-500"
+                  className="input resize-none py-3 leading-relaxed"
                 />
               </div>
 
-              <button
-                type="submit"
-                className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-sm font-bold"
-              >
-                <Send className="h-4 w-4" /> Gửi tin nhắn ngay
-              </button>
+              <div className="flex flex-col-reverse gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-stone-500">Các trường có dấu <span className="text-rose-600">*</span> là bắt buộc.</p>
+                <button type="submit" className="btn-primary min-h-12 rounded-xl px-8 text-sm">
+                  <Send className="h-4 w-4" aria-hidden="true" /> Gửi tin nhắn ngay
+                </button>
+              </div>
             </form>
           )}
         </section>
-      </main>
+      </div>
     </div>
   );
 }

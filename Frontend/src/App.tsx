@@ -4,6 +4,7 @@ import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import ClientLayout from "./layouts/ClientLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { useRevealOnScroll } from "./hooks/useRevealOnScroll";
 
 const Home = lazy(() => import("./pages/Home"));
 const Detail = lazy(() => import("./pages/Detail"));
@@ -39,14 +40,17 @@ const AdminEmployees = lazy(() => import("./pages/Admin/AdminEmployees"));
 
 function RouteFallback() {
   return (
-    <div className="flex min-h-[65vh] flex-col items-center justify-center gap-3 bg-[#f7f8f6] text-slate-500" role="status" aria-live="polite">
-      <Loader2 className="h-9 w-9 animate-spin text-amber-500" />
+    <div className="flex min-h-[65vh] flex-col items-center justify-center gap-3 bg-surface text-stone-500" role="status" aria-live="polite">
+      <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 ring-1 ring-brand-100">
+        <Loader2 className="h-7 w-7 animate-spin text-brand-500" aria-hidden="true" />
+      </span>
       <span className="text-sm font-semibold">Đang chuẩn bị trải nghiệm...</span>
     </div>
   );
 }
 
 function App() {
+  useRevealOnScroll();
   return (
     <>
       <Suspense fallback={<RouteFallback />}>
@@ -138,7 +142,16 @@ function App() {
         </Route>
       </Routes>
       </Suspense>
-      <Toaster position="top-right" />
+      <Toaster
+        position="top-right"
+        gutter={10}
+        toastOptions={{
+          duration: 3500,
+          style: { borderRadius: 14, padding: "12px 14px", fontWeight: 600, fontSize: 14, color: "#1c1917", border: "1px solid #e7e5e4", boxShadow: "0 16px 32px -12px rgba(28,25,23,.18)" },
+          success: { iconTheme: { primary: "#059669", secondary: "#fff" } },
+          error: { iconTheme: { primary: "#dc2626", secondary: "#fff" } },
+        }}
+      />
     </>
   );
 }

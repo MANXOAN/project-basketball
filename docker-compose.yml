@@ -1,0 +1,51 @@
+services:
+  mongo:
+    image: mongo:8.2
+    restart: unless-stopped
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build: ./Backend
+    restart: unless-stopped
+    env_file:
+      - path: ./Backend/.env
+        required: false
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/db_datn_su26
+      ALLOW_IN_MEMORY_DB: "false"
+      # VNPay yêu cầu vnp_CreateDate/ExpireDate theo giờ Việt Nam (GMT+7)
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      # Dữ liệu chuẩn nạp lại mỗi lần khởi động; `npm run db:export` ghi đè file này.
+      - ./Backend/data:/app/data
+      # Bản sao dữ liệu cũ được lưu trước mỗi lần xoá/nạp lại.
+      - ./Backend/backups:/app/backups
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./Frontend
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:

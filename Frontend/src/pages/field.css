@@ -1,6 +1,9 @@
+/* Legacy hero styles (not imported anywhere). Kept on-brand: warm white + orange. */
 .hero {
     padding: 40px;
-    background: #001529; 
+    background: var(--color-surface, #fffaf5);
+    border-bottom: 1px solid var(--color-brand-100, #ffedd5);
+    color: var(--color-ink, #1c1917);
     text-align: center;
 }
 .hero-content {

@@ -2,6 +2,25 @@
 
 Ứng dụng đặt sân bóng rổ gồm React/Vite frontend và Node.js/Express/MongoDB backend.
 
+## Chạy bằng Docker Compose
+
+Yêu cầu: Docker + Docker Compose v2. Từ thư mục gốc:
+
+```bash
+cp Backend/.env.example Backend/.env   # tuỳ chọn: điền EMAIL_USER/EMAIL_PASS, JWT_SECRET...
+docker compose up -d --build
+```
+
+- Frontend (nginx, proxy `/api` sang backend): http://localhost:5173
+- Backend API: http://localhost:3000
+- MongoDB 8.2: `mongodb://localhost:27017/db_datn_su26`
+
+Mỗi lần backend khởi động, MongoDB được **xoá và nạp lại** từ dữ liệu chuẩn
+`Backend/data/db-snapshot.json` (commit cùng code) để mọi máy có cùng dữ liệu.
+Cập nhật dữ liệu chuẩn bằng `docker compose exec backend npm run db:export` rồi
+commit file đó — chi tiết trong [Backend/DB_SETUP.md](Backend/DB_SETUP.md).
+Đổi cổng qua biến `FRONTEND_PORT`, `BACKEND_PORT`, `MONGO_PORT`.
+
 ## Chạy local
 
 Yêu cầu: Node.js 22+, npm và MongoDB đang chạy local.

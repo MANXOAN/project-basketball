@@ -1,13 +1,23 @@
 import { useState, useEffect } from "react";
-import { Table, Button, Modal, Form, Select, message, Spin, Tag, Input, Popconfirm, Space, Switch } from "antd";
+import { Table, Button, Modal, Form, Select, message, Input, Popconfirm, Switch, Tooltip } from "antd";
 import { Users, Shield, ShieldCheck, Mail, Lock, Plus, UserRound, Activity, Edit } from "lucide-react";
 import { api } from "../../lib/api";
 
+type StaffUser = { id: number; fullName: string; name?: string; email: string; phone?: string; role: string; isActive?: boolean };
+type StaffFormValues = { fullName?: string; name?: string; email: string; password?: string; phone?: string; role?: string };
+type ApiError = { response?: { data?: { message?: string } } };
+
+const ROLE_META: Record<string, { label: string; scope: string; cls: string }> = {
+    admin: { label: "Quản trị hệ thống", scope: "Toàn quyền hệ thống", cls: "bg-rose-50 text-rose-700 ring-rose-200" },
+    manager: { label: "Quản lý sân", scope: "Quản lý sân và lịch", cls: "bg-brand-50 text-brand-800 ring-brand-200" },
+    user: { label: "Khách hàng", scope: "Đặt sân, xem lịch cá nhân", cls: "bg-stone-100 text-stone-700 ring-stone-200" },
+};
+
 export default function AdminEmployees() {
-    const [users, setUsers] = useState<any[]>([]);
+    const [users, setUsers] = useState<StaffUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingUser, setEditingUser] = useState<any>(null);
+    const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
     const [form] = Form.useForm();
 
     const fetchUsers = async () => {
@@ -25,7 +35,7 @@ export default function AdminEmployees() {
         fetchUsers();
     }, []);
 
-    const handleSave = async (values: any) => {
+    const handleSave = async (values: StaffFormValues) => {
         try {
             const payload = {
                 name: values.fullName || values.name,
@@ -43,9 +53,9 @@ export default function AdminEmployees() {
             setIsModalOpen(false);
             form.resetFields(); setEditingUser(null);
             fetchUsers();
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Bắt thông báo lỗi từ Backend trả về (ví dụ: "Email already exists")
-            const errorMsg = error.response?.data?.message || "Lỗi khi tạo nhân viên!";
+            const errorMsg = (error as ApiError).response?.data?.message || "Lỗi khi tạo nhân viên!";
             if (errorMsg.includes("Email already exists")) {
                 message.error("Email này đã được sử dụng. Vui lòng nhập email khác!");
             } else {
@@ -54,10 +64,10 @@ export default function AdminEmployees() {
         }
     };
 
-    const openModal = (user?: any) => { setEditingUser(user || null); form.setFieldsValue(user || { role: "manager" }); setIsModalOpen(true); };
-    const toggleStatus = async (user: any) => {
+    const openModal = (user?: StaffUser) => { setEditingUser(user || null); form.setFieldsValue(user || { role: "manager" }); setIsModalOpen(true); };
+    const toggleStatus = async (user: StaffUser) => {
         try { await api.patch(`/users/${user.id}/status`, { isActive: !user.isActive }); message.success(user.isActive ? "Đã khóa tài khoản" : "Đã mở khóa tài khoản"); fetchUsers(); }
-        catch (error: any) { message.error(error.response?.data?.message || "Không thể cập nhật trạng thái"); }
+        catch (error: unknown) { message.error((error as ApiError).response?.data?.message || "Không thể cập nhật trạng thái"); }
     };
 
     const changeRole = async (id: number, newRole: string) => {
@@ -72,29 +82,33 @@ export default function AdminEmployees() {
 
     const columns = [
         {
-            title: "Họ tên",
+            title: "Nhân sự",
             dataIndex: "fullName",
-            render: (t: string) => <span className="font-bold text-gray-800">{t}</span>
+            width: 280,
+            render: (t: string, record: StaffUser) => (
+                <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-50 text-sm font-extrabold text-brand-700 ring-1 ring-brand-100">{(t || record.email || "?").trim().charAt(0).toUpperCase()}</span>
+                    <div className="min-w-0">
+                        <div className="truncate font-bold text-stone-900">{t}</div>
+                        <div className="flex min-w-0 items-center gap-1 text-xs text-stone-500"><Mail size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{record.email}</span></div>
+                    </div>
+                </div>
+            )
         },
-        { title: "Trạng thái", render: (_: unknown, user: any) => <Switch checked={user.isActive !== false} checkedChildren="Hoạt động" unCheckedChildren="Đã khóa" onChange={() => toggleStatus(user)} /> },
-        { title: "Thao tác", align: "right" as const, render: (_: unknown, user: any) => <Space><Button type="text" aria-label={`Sửa ${user.fullName}`} onClick={() => openModal(user)}><Edit size={18} /></Button><Popconfirm title={user.isActive === false ? "Mở khóa tài khoản này?" : "Khóa tài khoản này?"} onConfirm={() => toggleStatus(user)} okText="Xác nhận" cancelText="Hủy"><Button type="text" danger={user.isActive !== false}>{user.isActive === false ? "Mở khóa" : "Khóa"}</Button></Popconfirm></Space> },
         {
-            title: "Email / Đăng nhập",
-            dataIndex: "email",
-            render: (t: string) => <span className="text-gray-500 font-medium flex items-center"><Mail size={14} className="mr-1" /> {t}</span>
-        },
-        {
-            title: "Vai trò (Phân quyền)",
+            title: "Vai trò",
             dataIndex: "role",
-            render: (r: string, record: any) => (
+            width: 210,
+            render: (r: string, record: StaffUser) => (
                 <Select
                     value={r}
                     onChange={v => changeRole(record.id, v)}
-                    className="w-40 font-bold"
+                    aria-label={`Vai trò của ${record.fullName}`}
+                    className="w-48"
                     options={[
-                        { value: 'admin', label: <span className="text-red-600 flex items-center"><ShieldCheck size={14} className="mr-1" /> Quản trị hệ thống</span> },
-                        { value: 'manager', label: <span className="text-blue-600 flex items-center"><Lock size={14} className="mr-1" /> Quản lý sân</span> },
-                        { value: 'user', label: <span className="text-emerald-600 flex items-center"><Users size={14} className="mr-1" /> Khách hàng</span> }
+                        { value: 'admin', label: <span className="flex items-center gap-1.5 font-semibold text-rose-700"><ShieldCheck size={14} aria-hidden="true" /> Quản trị hệ thống</span> },
+                        { value: 'manager', label: <span className="flex items-center gap-1.5 font-semibold text-brand-700"><Lock size={14} aria-hidden="true" /> Quản lý sân</span> },
+                        { value: 'user', label: <span className="flex items-center gap-1.5 font-semibold text-stone-700"><Users size={14} aria-hidden="true" /> Khách hàng</span> }
                     ]}
                 />
             )
@@ -102,54 +116,79 @@ export default function AdminEmployees() {
         {
             title: "Quyền hạn",
             dataIndex: "role",
+            key: "scope",
+            width: 190,
             render: (r: string) => {
-                if (r === 'admin') return <Tag color="red">Quản trị hệ thống</Tag>;
-                if (r === 'manager') return <Tag color="blue">Quản lý sân và lịch</Tag>;
-                return <Tag>Khách hàng</Tag>;
+                const meta = ROLE_META[r] || ROLE_META.user;
+                return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ring-1 ring-inset ${meta.cls}`}>{meta.scope}</span>;
             }
-        }
+        },
+        {
+            title: "Trạng thái",
+            key: "active",
+            width: 140,
+            render: (_: unknown, user: StaffUser) => <Switch checked={user.isActive !== false} checkedChildren="Hoạt động" unCheckedChildren="Đã khóa" aria-label={`Trạng thái tài khoản ${user.fullName}`} onChange={() => toggleStatus(user)} className={user.isActive !== false ? "!bg-emerald-600" : ""} />
+        },
+        {
+            title: "Thao tác", align: "right" as const, width: 150,
+            render: (_: unknown, user: StaffUser) => (
+                <div className="flex items-center justify-end gap-1">
+                    <Tooltip title="Sửa"><Button type="text" aria-label={`Sửa ${user.fullName}`} icon={<Edit size={17} />} onClick={() => openModal(user)} /></Tooltip>
+                    <Popconfirm title={user.isActive === false ? "Mở khóa tài khoản này?" : "Khóa tài khoản này?"} onConfirm={() => toggleStatus(user)} okText="Xác nhận" cancelText="Hủy">
+                        <Button size="small" danger={user.isActive !== false}>{user.isActive === false ? "Mở khóa" : "Khóa"}</Button>
+                    </Popconfirm>
+                </div>
+            )
+        },
     ];
 
-    if (loading) return <div className="flex justify-center py-40"><Spin size="large" /></div>;
+    if (loading) return (
+        <div className="space-y-6 pb-10" aria-busy="true" aria-label="Đang tải nhân sự">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-[88px] !rounded-3xl" />)}</div>
+            <div className="skeleton h-[420px] !rounded-3xl" />
+        </div>
+    );
 
     return (
-        <div className="animate-in fade-in duration-500 pb-10">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><ShieldCheck size={14} /> Access control</div>
-                    <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
-                        Phân Quyền Nhân Sự (RBAC)
-                    </h1>
-                    <p className="text-gray-500 mt-2 font-medium">Bảo mật hệ thống, cấp quyền truy cập theo từng chức vụ</p>
-                </div>
-                <Button size="large" type="primary" onClick={() => openModal()} className="!bg-yellow-500 hover:!bg-yellow-400 !text-black font-bold px-6 !border-0 shadow-lg shadow-yellow-500/20 flex items-center h-12 rounded-2xl transition-all hover:scale-105">
-                    <Plus className="mr-2" size={20} /> Thêm nhân sự
+        <div className="space-y-6 pb-10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="m-0 text-sm text-stone-600">Cấp quyền truy cập theo chức vụ (RBAC) và khóa/mở tài khoản nhân sự.</p>
+                <Button size="large" type="primary" onClick={() => openModal()} icon={<Plus size={18} aria-hidden="true" />} className="self-start sm:self-auto">
+                    Thêm nhân sự
                 </Button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                {[{ label: "Tổng tài khoản", value: users.length, icon: Users }, { label: "Quản trị hệ thống", value: users.filter((u) => u.role === "admin").length, icon: ShieldCheck }, { label: "Quản lý sân", value: users.filter((u) => u.role === "manager").length, icon: Activity }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                {[{ label: "Tổng tài khoản", value: users.length, icon: Users }, { label: "Quản trị hệ thống", value: users.filter((u) => u.role === "admin").length, icon: ShieldCheck }, { label: "Quản lý sân", value: users.filter((u) => u.role === "manager").length, icon: Activity }].map((item) => { const Icon = item.icon; return (
+                    <div key={item.label} className="card flex items-center justify-between gap-3 !rounded-2xl p-3.5 sm:!rounded-3xl sm:p-5">
+                        <div><div className="text-2xl font-extrabold text-stone-950 tabular-nums">{item.value}</div><div className="mt-0.5 text-[11px] font-semibold leading-tight text-stone-500 sm:text-xs">{item.label}</div></div>
+                        <span className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 sm:grid"><Icon size={20} aria-hidden="true" /></span>
+                    </div>); })}
             </div>
-            <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
+
+            <section className="card overflow-hidden" aria-label="Danh sách nhân sự">
+                <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
+                    <h2 className="m-0 text-base font-extrabold text-stone-950">Tài khoản & phân quyền <span className="ml-1 text-sm font-semibold text-stone-500">({users.length})</span></h2>
+                </div>
                 <Table
-                    className="modern-table mt-2"
+                    className="modern-table"
                     dataSource={users}
                     columns={columns}
                     rowKey="id"
                     pagination={false}
-                    locale={{ emptyText: <div className="py-12 text-center text-gray-500"><UserRound className="mx-auto mb-3 text-yellow-500" /><p>Chưa có nhân sự trong hệ thống</p></div> }}
-                    components={{ header: { cell: (props: any) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold uppercase text-xs tracking-wider !border-b-white/10 py-4" /> } }}
+                    scroll={{ x: 970 }}
+                    locale={{ emptyText: <div className="py-12 text-center"><span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-600"><UserRound size={22} aria-hidden="true" /></span><div className="font-semibold text-stone-700">Chưa có nhân sự trong hệ thống</div></div> }}
                 />
-            </div>
+            </section>
 
             <Modal
-                title={<div className="font-black text-xl flex items-center gap-2"><Shield className="text-blue-500" /> {editingUser ? "Cập nhật Nhân Sự" : "Thêm Nhân Sự Mới"}</div>}
+                title={<div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100"><Shield size={20} aria-hidden="true" /></span><span className="text-lg font-extrabold text-stone-950">{editingUser ? "Cập nhật nhân sự" : "Thêm nhân sự mới"}</span></div>}
                 open={isModalOpen}
                 onCancel={() => { setIsModalOpen(false); setEditingUser(null); }}
                 footer={null}
                 className="rounded-2xl"
             >
-                <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4" initialValues={{ role: 'manager' }}>
+                <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4" initialValues={{ role: 'manager' }} requiredMark={false}>
                     <Form.Item name="fullName" label="Tên nhân viên" rules={[{ required: true }]}>
                         <Input size="large" className="rounded-xl" />
                     </Form.Item>
@@ -159,15 +198,15 @@ export default function AdminEmployees() {
                     {!editingUser && <Form.Item name="password" label="Mật khẩu ban đầu" rules={[{ required: true }, { min: 6, message: "Tối thiểu 6 ký tự" }]}>
                         <Input.Password size="large" className="rounded-xl" autoComplete="new-password" />
                     </Form.Item>}
-                    <Form.Item name="role" label={<span className="font-semibold text-gray-700 mt-2">Vai trò</span>} rules={[{ required: true }]}>
+                    <Form.Item name="role" label="Vai trò" rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl">
                             <Select.Option value="admin">Admin - Quản trị hệ thống</Select.Option>
                             <Select.Option value="manager">Quản lý sân - Quản lý sân và lịch</Select.Option>
                             <Select.Option value="user">User - Khách hàng</Select.Option>
                         </Select>
                     </Form.Item>
-                    <Button type="primary" htmlType="submit" size="large" block className="mt-4 bg-gradient-to-r from-cyan-600 to-blue-600 border-0 shadow-lg shadow-cyan-500/30 h-12 text-lg font-black rounded-2xl">
-                        {editingUser ? "LƯU THAY ĐỔI" : "TẠO TÀI KHOẢN"}
+                    <Button type="primary" htmlType="submit" size="large" block className="mt-2 !h-12 !text-base !font-bold">
+                        {editingUser ? "Lưu thay đổi" : "Tạo tài khoản"}
                     </Button>
                 </Form>
             </Modal>

@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  Quote,
   Search,
   ShieldCheck,
   Sparkles,
@@ -35,118 +36,143 @@ const reasons = [
   "Tích điểm thưởng và nhận voucher giảm giá cho đội bóng",
 ];
 
+const stats = [
+  { value: "2.400+", label: "Sân bóng rổ toàn quốc" },
+  { value: "150K+", label: "Người chơi đặt sân thường xuyên" },
+  { value: "24/7", label: "Hỗ trợ check-in và hoàn hủy tức thì" },
+];
+
 export default function About() {
   return (
-    <div className="bg-black text-gray-200 min-h-screen">
+    <div className="min-h-screen bg-surface text-stone-700">
       {/* Hero Section */}
-      <section
-        className="relative min-h-[500px] flex items-center px-4 py-24 sm:px-6 lg:px-8 border-b border-white/5"
-        style={{
-          backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(11,11,11,0.95) 100%), url(${banner2})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <div className="relative mx-auto max-w-7xl w-full">
-          <div className="max-w-3xl">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-yellow-400 backdrop-blur-sm">
-              <Sparkles className="h-4 w-4" /> Đam mê bùng nổ trên từng đường bóng
-            </div>
-            <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-6xl text-white">
-              Golden State kết nối bạn với sàn đấu đỉnh cao.
+      <section className="relative overflow-hidden border-b border-stone-200 bg-white px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8">
+        <div className="brand-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_top_left,black_25%,transparent_70%)]" aria-hidden="true" />
+        <div className="pointer-events-none absolute -right-32 top-10 h-96 w-96 rounded-full bg-brand-200/50 blur-3xl" aria-hidden="true" />
+        <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
+          <div className="animate-fade-in-up">
+            <span className="eyebrow rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Đam mê bùng nổ trên từng đường bóng
+            </span>
+            <h1 className="mt-6 text-4xl font-extrabold leading-[1.1] tracking-tight text-stone-950 sm:text-6xl">
+              GoldenState kết nối bạn với <span className="text-brand-600">sàn đấu đỉnh cao.</span>
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-gray-300 sm:text-lg">
+            <p className="mt-6 max-w-xl text-lg leading-relaxed text-stone-600">
               Nền tảng đặt sân bóng rổ chuyên nghiệp, giúp các đội bóng tìm kiếm, đặt lịch và ra sân nhanh nhất.
             </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <Link to="/fields" className="btn-primary inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-sm">
-                Tìm sân bóng ngay <ArrowRight className="h-4 w-4" />
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link to="/fields" className="btn-primary min-h-12 rounded-xl px-7 text-sm">
+                Tìm sân bóng ngay <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Link>
-              <a href="#mission" className="btn-outline inline-flex items-center px-6 py-3.5 rounded-xl text-sm">
+              <a href="#mission" className="btn-outline min-h-12 rounded-xl px-6 text-sm">
                 Khám phá sứ mệnh
               </a>
+            </div>
+          </div>
+
+          <div className="relative animate-fade-in delay-200">
+            <div className="zoom-media group relative aspect-[4/3] overflow-hidden rounded-3xl shadow-lift ring-1 ring-stone-200">
+              <img src={banner2} alt="Sân bóng rổ GoldenState" className="h-full w-full object-cover" />
+              <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-stone-950/50 to-transparent" aria-hidden="true" />
+            </div>
+            <div className="glass-panel absolute -bottom-6 left-3 flex items-center gap-3 rounded-2xl px-4 py-3 sm:-left-8 animate-float">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-white">
+                <Trophy className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-extrabold text-stone-950">Chuẩn thi đấu FIBA</p>
+                <p className="text-xs text-stone-500">Mặt sân & ánh sáng đạt chuẩn</p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Stats Bar */}
-      <section id="mission" className="relative mx-auto -mt-12 max-w-7xl px-4 sm:px-6 lg:px-8 z-20">
-        <div className="grid gap-4 rounded-3xl border border-white/10 bg-zinc-900 p-8 shadow-2xl sm:grid-cols-3">
-          <div className="border-b border-white/5 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-6 text-center sm:text-left">
-            <p className="text-4xl font-black text-yellow-400">2,400+</p>
-            <p className="mt-2 text-sm font-semibold text-gray-400">Sân bóng rổ toàn quốc</p>
-          </div>
-          <div className="border-b border-white/5 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:px-6 text-center sm:text-left">
-            <p className="text-4xl font-black text-yellow-400">150K+</p>
-            <p className="mt-2 text-sm font-semibold text-gray-400">Người chơi đặt sân thường xuyên</p>
-          </div>
-          <div className="sm:pl-6 text-center sm:text-left">
-            <p className="text-4xl font-black text-yellow-400">24/7</p>
-            <p className="mt-2 text-sm font-semibold text-gray-400">Hỗ trợ check-in và hoàn hủy tức thì</p>
-          </div>
+      <section id="mission" className="relative z-20 mx-auto -mt-12 max-w-7xl scroll-mt-28 px-4 sm:px-6 lg:px-8">
+        <div className="grid overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 via-brand-600 to-brand-800 text-white shadow-brand sm:grid-cols-3" data-reveal>
+          {stats.map((stat, i) => (
+            <div key={stat.label} className={`px-8 py-7 text-center sm:text-left ${i > 0 ? "border-t border-white/20 sm:border-l sm:border-t-0" : ""}`}>
+              <p className="text-4xl font-extrabold tracking-tight tabular-nums">{stat.value}</p>
+              <p className="mt-1.5 text-sm font-semibold text-white/90">{stat.label}</p>
+            </div>
+          ))}
         </div>
       </section>
 
       {/* Mission Section */}
-      <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24 lg:px-8">
         <div className="grid items-center gap-12 lg:grid-cols-2">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-500">
-              <Trophy className="w-4 h-4" /> Sứ mệnh của chúng tôi
-            </div>
-            <h2 className="text-3xl font-black leading-tight sm:text-4xl text-white">
+          <div data-reveal>
+            <span className="eyebrow">
+              <Trophy className="h-4 w-4" aria-hidden="true" /> Sứ mệnh của chúng tôi
+            </span>
+            <h2 className="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-stone-950 sm:text-4xl">
               Nâng tầm trải nghiệm bóng rổ cộng đồng.
             </h2>
-            <p className="mt-5 leading-relaxed text-gray-400 text-sm md:text-base">
-              Golden State xuất phát từ niềm đam mê bóng rổ và khao khát loại bỏ mọi phiền toái khi tìm sân: không còn phải gọi điện dò hỏi lịch trống, không sợ bị trùng giờ thi đấu, thanh toán cọc minh bạch và hoàn tiền công bằng.
+            <p className="mt-5 max-w-[65ch] text-base leading-[1.8] text-stone-600">
+              GoldenState xuất phát từ niềm đam mê bóng rổ và khao khát loại bỏ mọi phiền toái khi tìm sân: không còn phải gọi điện dò hỏi lịch trống, không sợ bị trùng giờ thi đấu, thanh toán cọc minh bạch và hoàn tiền công bằng.
             </p>
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <ul className="mt-8 grid gap-3 sm:grid-cols-2">
               {reasons.map((reason) => (
-                <div key={reason} className="flex items-start gap-3 text-sm font-semibold text-gray-300">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />
+                <li key={reason} className="flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm font-semibold leading-snug text-stone-800 shadow-soft">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" aria-hidden="true" />
                   {reason}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl bg-zinc-900 border border-white/10 p-8 text-white shadow-2xl sm:p-12">
-            <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-yellow-500/10 blur-3xl pointer-events-none" />
-            <div className="w-12 h-12 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 flex items-center justify-center text-2xl text-yellow-400 mb-6">
-              🏀
-            </div>
-            <p className="text-xl sm:text-2xl font-black leading-snug">
+          <figure className="relative overflow-hidden rounded-3xl border border-brand-200 bg-brand-50 p-8 sm:p-12" data-reveal style={{ "--reveal-index": 1 } as React.CSSProperties}>
+            <div className="brand-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden="true" />
+            <svg viewBox="0 0 24 24" className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 text-brand-200" fill="none" stroke="currentColor" strokeWidth={1.2} aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3v18" />
+              <path d="M5.6 5.6c2.6 2.2 3.9 4.3 3.9 6.4s-1.3 4.2-3.9 6.4M18.4 5.6c-2.6 2.2-3.9 4.3-3.9 6.4s1.3 4.2 3.9 6.4" />
+            </svg>
+            <Quote className="relative mb-6 h-10 w-10 text-brand-500" aria-hidden="true" />
+            <blockquote className="relative text-xl font-extrabold leading-snug text-stone-950 sm:text-2xl">
               “Mỗi trận bóng rổ không chỉ là những pha ghi điểm, mà là nơi tinh thần đồng đội và niềm đam mê được khẳng định.”
-            </p>
-            <p className="mt-6 text-xs uppercase font-bold tracking-widest text-yellow-400">
+            </blockquote>
+            <figcaption className="relative mt-6 text-xs font-bold uppercase tracking-widest text-brand-700">
               GoldenState Basketball Club · 2026
-            </p>
-          </div>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
       {/* Features Grid */}
-      <section className="bg-zinc-950 py-20 border-t border-white/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl font-black text-white mb-4">Vì Sao Nên Chọn GoldenState?</h2>
-            <p className="text-gray-400 text-sm">Trải nghiệm dịch vụ đặt sân bóng rổ hiện đại, bảo mật và tiện lợi nhất.</p>
+      <section className="border-t border-stone-200 bg-white py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto mb-12 max-w-2xl text-center" data-reveal>
+            <span className="eyebrow">Lý do lựa chọn</span>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-stone-950 sm:text-4xl">Vì sao nên chọn GoldenState?</h2>
+            <p className="mt-3 text-base text-stone-600">Trải nghiệm dịch vụ đặt sân bóng rổ hiện đại, bảo mật và tiện lợi nhất.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
             {features.map((f, i) => {
               const Icon = f.icon;
               return (
-                <div key={i} className="bg-zinc-900 border border-white/5 rounded-3xl p-8 hover:border-yellow-500/30 transition-colors group">
-                  <div className="w-12 h-12 rounded-2xl bg-black border border-white/10 flex items-center justify-center text-yellow-400 mb-6 group-hover:bg-yellow-500 group-hover:text-black transition-colors">
-                    <Icon className="w-6 h-6" />
+                <div key={i} className="card hover-lift group p-8 hover:border-brand-200" data-reveal style={{ "--reveal-index": i } as React.CSSProperties}>
+                  <div className="mb-6 grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-600 ring-1 ring-brand-200 transition-colors duration-300 group-hover:bg-brand-600 group-hover:text-white">
+                    <Icon className="h-6 w-6" aria-hidden="true" />
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
-                  <p className="text-gray-400 text-sm leading-relaxed">{f.description}</p>
+                  <h3 className="mb-2 text-lg font-extrabold text-stone-950">{f.title}</h3>
+                  <p className="text-sm leading-relaxed text-stone-600">{f.description}</p>
                 </div>
               );
             })}
+          </div>
+
+          <div className="mt-14 flex flex-col items-center justify-between gap-5 rounded-3xl border border-stone-200 bg-surface p-8 text-center sm:flex-row sm:text-left" data-reveal>
+            <div>
+              <h3 className="text-xl font-extrabold text-stone-950">Sẵn sàng cho trận đấu tiếp theo?</h3>
+              <p className="mt-1 text-sm text-stone-600">Hàng nghìn khung giờ trống đang chờ đội của bạn.</p>
+            </div>
+            <Link to="/fields" className="btn-primary min-h-12 shrink-0 rounded-xl px-7 text-sm">
+              Đặt sân ngay <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
           </div>
         </div>
       </section>

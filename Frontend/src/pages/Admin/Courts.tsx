@@ -1,7 +1,6 @@
-import { Table, Button, Space, Popconfirm, message, Modal, Form, Input, InputNumber, Select, Spin, Tag } from "antd";
-import { CopyPlus, Edit, Trash2, MapPin, Activity, CheckCircle2, Layers3, Wrench } from "lucide-react";
+import { Table, Button, Popconfirm, message, Modal, Form, Input, InputNumber, Select, Tooltip } from "antd";
+import { CopyPlus, Edit, Trash2, MapPin, CheckCircle2, Wrench } from "lucide-react";
 import { useState, useEffect } from "react";
-import type { ThHTMLAttributes } from "react";
 import { api, type Court as ApiCourt, type Field, formatCurrency } from "../../lib/api";
 
 type Court = ApiCourt;
@@ -91,149 +90,158 @@ export default function Courts() {
         }
     };
 
+    const fieldName = (id: number) => fields.find((field) => field.id === id)?.name;
+
     const columns = [
         {
-            title: "Tên Sân Bãi",
+            title: "Tên sân",
             dataIndex: "name",
             key: "name",
-            render: (text: string) => (
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                        <MapPin size={18} />
-                    </div>
-                    <div>
-                        <div className="font-bold text-gray-800 text-base">{text}</div>
-                        <div className="text-xs text-gray-500">ID: {text ? "Đang vận hành" : "Chưa đặt tên"}</div>
+            width: 300,
+            render: (text: string, record: Court) => (
+                <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100">
+                        <MapPin size={18} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                        <div className="truncate font-bold text-stone-900" title={text}>{text}</div>
+                        <div className="truncate text-xs text-stone-500">{fieldName(record.fieldId) || (text ? "Đang vận hành" : "Chưa đặt tên")}</div>
                     </div>
                 </div>
             )
         },
         {
-            title: "Giá Thuê (VNĐ)",
+            title: "Loại sân",
+            dataIndex: "type",
+            key: "type",
+            width: 150,
+            render: (value: string) => <span className="text-sm font-semibold text-stone-700">{value || "—"}</span>
+        },
+        {
+            title: "Giá thuê / giờ",
             dataIndex: "price",
             key: "price",
-            render: (value: number) => <span className="font-bold text-gray-700">{formatCurrency(value)}</span>
+            width: 150,
+            align: "right" as const,
+            render: (value: number) => <span className="font-extrabold text-stone-900 tabular-nums">{formatCurrency(value)}</span>
         },
         {
             title: "Trạng thái",
             dataIndex: "status",
             key: "status",
+            width: 150,
             render: (status: string) => status === 'active'
-                ? <Tag color="success" className="rounded-full px-3 py-1 font-bold border-0 bg-green-50 text-green-600 flex items-center w-max gap-1"><CheckCircle2 size={14} /> Hoạt động</Tag>
-                : <Tag color="warning" className="rounded-full px-3 py-1 font-bold border-0 bg-orange-50 text-orange-600 flex items-center w-max gap-1"><Activity size={14} /> Bảo trì</Tag>
+                ? <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200"><CheckCircle2 size={13} aria-hidden="true" /> Hoạt động</span>
+                : <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-brand-50 px-2.5 py-1 text-xs font-bold text-brand-800 ring-1 ring-inset ring-brand-200"><Wrench size={13} aria-hidden="true" /> Bảo trì</span>
         },
         {
-            title: "Hành động",
+            title: "Thao tác",
             key: "action",
+            width: 110,
             align: 'right' as const,
             render: (_: unknown, record: Court) => (
-                <Space size="small">
-                    <Button type="text" size="middle" className="text-blue-600 hover:bg-blue-50 font-medium rounded-xl flex items-center justify-center p-2" onClick={() => handleOpenModal(record)}>
-                        <Edit size={18} />
-                    </Button>
+                <div className="flex justify-end gap-1">
+                    <Tooltip title="Sửa"><Button type="text" aria-label={`Sửa ${record.name}`} icon={<Edit size={17} />} onClick={() => handleOpenModal(record)} /></Tooltip>
                     <Popconfirm title="Chắc chắn xoá sân này?" onConfirm={() => handleDelete(record.id)} okText="Xoá" cancelText="Huỷ" okButtonProps={{ danger: true }}>
-                        <Button danger type="text" size="middle" className="hover:bg-red-50 rounded-xl flex items-center justify-center p-2">
-                            <Trash2 size={18} />
-                        </Button>
+                        <Tooltip title="Xoá"><Button danger type="text" aria-label={`Xoá ${record.name}`} icon={<Trash2 size={17} />} /></Tooltip>
                     </Popconfirm>
-                </Space>
+                </div>
             )
         }
     ];
 
     if (loading) {
         return (
-            <div className="flex justify-center items-center py-40">
-                <Spin size="large" />
+            <div className="space-y-6 pb-10" aria-busy="true" aria-label="Đang tải sân">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-[88px] !rounded-3xl" />)}</div>
+                <div className="skeleton h-[420px] !rounded-3xl" />
             </div>
         );
     }
 
     return (
-        <div className="animate-in fade-in duration-500">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
-                <div>
-                        <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-yellow-400 mb-2"><Layers3 size={14} /> Venue operations</div>
-                        <h1 className="text-3xl font-black text-white tracking-tight">Quản lý Sân Bóng</h1>
-                    <p className="text-gray-500 mt-2 font-medium">Thêm, sửa, xoá và cập nhật trạng thái các sân bóng</p>
-                </div>
-                <Button
-                    type="primary"
-                    size="large"
-                    className="!bg-yellow-500 hover:!bg-yellow-400 shadow-lg shadow-yellow-500/20 !text-black font-bold rounded-2xl h-12 px-6 flex items-center transition-all hover:scale-105 !border-0 gap-2"
-                    onClick={() => handleOpenModal()}
-                >
-                    <CopyPlus size={20} /> Tạo sân mới
+        <div className="space-y-6 pb-10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="m-0 text-sm text-stone-600">Thêm, sửa, xoá và cập nhật trạng thái các sân bóng rổ.</p>
+                <Button type="primary" size="large" icon={<CopyPlus size={18} aria-hidden="true" />} className="self-start sm:self-auto" onClick={() => handleOpenModal()}>
+                    Tạo sân mới
                 </Button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                {[{ label: "Tổng số sân", value: data.length, icon: MapPin }, { label: "Đang hoạt động", value: data.filter((c) => c.status === "active").length, icon: CheckCircle2 }, { label: "Đang bảo trì", value: data.filter((c) => c.status !== "active").length, icon: Wrench }].map((item) => { const Icon = item.icon; return <div key={item.label} className="rounded-2xl border border-yellow-500/15 bg-zinc-900 p-5 flex items-center justify-between"><div><div className="text-2xl font-black text-white">{item.value}</div><div className="text-xs text-gray-500 mt-1">{item.label}</div></div><Icon className="text-yellow-400" size={24} /></div>; })}
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                {[{ label: "Tổng số sân", value: data.length, icon: MapPin }, { label: "Đang hoạt động", value: data.filter((c) => c.status === "active").length, icon: CheckCircle2 }, { label: "Đang bảo trì", value: data.filter((c) => c.status !== "active").length, icon: Wrench }].map((item) => { const Icon = item.icon; return (
+                    <div key={item.label} className="card flex items-center justify-between gap-3 !rounded-2xl p-3.5 sm:!rounded-3xl sm:p-5">
+                        <div><div className="text-2xl font-extrabold text-stone-950 tabular-nums">{item.value}</div><div className="mt-0.5 text-[11px] font-semibold leading-tight text-stone-500 sm:text-xs">{item.label}</div></div>
+                        <span className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 sm:grid"><Icon size={20} aria-hidden="true" /></span>
+                    </div>); })}
             </div>
-            <div className="bg-zinc-900 rounded-3xl shadow-2xl border border-white/5 p-6 overflow-hidden">
+
+            <section className="card overflow-hidden" aria-label="Danh sách sân">
+                <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
+                    <h2 className="m-0 text-base font-extrabold text-stone-950">Danh sách sân <span className="ml-1 text-sm font-semibold text-stone-500">({data.length})</span></h2>
+                </div>
                 <Table
                     className="modern-table"
                     dataSource={data}
                     columns={columns}
                     rowKey="id"
-                    pagination={{ pageSize: 10, className: "mt-6" }}
-                    components={{
-                        header: { cell: (props: ThHTMLAttributes<HTMLTableCellElement>) => <th {...props} className="!bg-black/30 !text-gray-500 font-bold !border-b-white/10 py-4 uppercase text-xs tracking-wider" /> }
-                    }}
+                    scroll={{ x: 860 }}
+                    pagination={{ pageSize: 10, hideOnSinglePage: true, className: "!px-5 sm:!px-6" }}
+                    locale={{ emptyText: <div className="py-12 text-center"><span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-600"><MapPin size={22} aria-hidden="true" /></span><div className="font-semibold text-stone-700">Chưa có sân nào</div><div className="mt-1 text-sm text-stone-500">Bấm “Tạo sân mới” để thêm sân đầu tiên.</div></div> }}
                 />
-            </div>
+            </section>
 
             <Modal
-                title={<span className="font-bold text-xl text-gray-800 tracking-tight">{editingCourt ? "Chỉnh sửa sân bóng" : "Thêm sân mới"}</span>}
+                title={<span className="text-lg font-extrabold tracking-tight text-stone-950">{editingCourt ? "Chỉnh sửa sân bóng" : "Thêm sân mới"}</span>}
                 open={isModalOpen}
                 onCancel={() => setIsModalOpen(false)}
                 footer={null}
                 className="rounded-3xl overflow-hidden"
                 width={500}
             >
-                <Form layout="vertical" form={form} onFinish={handleSubmitForm} className="mt-8" requiredMark={false}>
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Tên Sân Bãi</span>} name="name" rules={[{ required: true, message: "Vui lòng nhập tên" }]}>
+                <Form layout="vertical" form={form} onFinish={handleSubmitForm} className="mt-5" requiredMark={false}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Tên Sân Bãi</span>} name="name" rules={[{ required: true, message: "Vui lòng nhập tên" }]}>
                         <Input placeholder="VD: Sân Bóng Rổ số 1..." size="large" className="rounded-xl" />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Cơ sở</span>} name="fieldId" rules={[{ required: true, message: "Chọn cơ sở" }]}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Cơ sở</span>} name="fieldId" rules={[{ required: true, message: "Chọn cơ sở" }]}>
                         <Select size="large" className="rounded-xl" placeholder="Chọn cơ sở" options={fields.map((field) => ({ value: field.id, label: field.name }))} />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Loại Sân</span>} name="type" rules={[{ required: true }]}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Loại Sân</span>} name="type" rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl" options={[
                             { value: 'Bóng rổ 5x5', label: 'Sân Bóng Rổ 5x5 - Tiêu chuẩn' },
                             { value: 'Bóng rổ 3x3', label: 'Sân Bóng Rổ 3x3 - Nửa sân' },
                         ]} />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Giá thuê / Giờ (VNĐ)</span>} name="price" rules={[{ required: true, message: "Nhập giá tiền" }]}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Giá thuê / Giờ (VNĐ)</span>} name="price" rules={[{ required: true, message: "Nhập giá tiền" }]}>
                         <InputNumber size="large" className="w-full rounded-xl font-bold" formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Trạng thái hiện tại</span>} name="status" rules={[{ required: true }]}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Trạng thái hiện tại</span>} name="status" rules={[{ required: true }]}>
                         <Select size="large" className="rounded-xl font-medium" options={[
                             { value: 'active', label: 'Đang hoạt động (Trống)' },
                             { value: 'maintenance', label: 'Bảo trì (Tạm khoá)' },
                         ]} />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Sức chứa</span>} name="capacity" rules={[{ required: true, message: "Nhập sức chứa" }]}>
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Sức chứa</span>} name="capacity" rules={[{ required: true, message: "Nhập sức chứa" }]}>
                         <InputNumber size="large" min={1} className="w-full rounded-xl" />
                     </Form.Item>
 
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Mô tả</span>} name="description">
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Mô tả</span>} name="description">
                         <Input.TextArea rows={3} placeholder="Mô tả mặt sân, ánh sáng, tiện ích..." />
                     </Form.Item>
-                    <Form.Item label={<span className="font-bold text-gray-700 text-sm uppercase tracking-wide">Ảnh sân (URL)</span>} name="imageUrl">
+                    <Form.Item label={<span className="text-sm font-semibold text-stone-700">Ảnh sân (URL)</span>} name="imageUrl">
                         <Input placeholder="https://..." />
                     </Form.Item>
 
-                    <div className="flex gap-3 mt-8">
-                        <Button size="large" className="flex-1 rounded-2xl font-bold h-12 text-gray-600 bg-gray-50 border-gray-200 hover:bg-gray-100" onClick={() => setIsModalOpen(false)}>
+                    <div className="mt-6 flex gap-3">
+                        <Button size="large" className="flex-1" onClick={() => setIsModalOpen(false)}>
                             Huỷ bỏ
                         </Button>
-                        <Button type="primary" htmlType="submit" size="large" className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 rounded-2xl font-bold h-12 border-0">
+                        <Button type="primary" htmlType="submit" size="large" className="flex-1">
                             {editingCourt ? "Lưu thay đổi" : "Tạo sân mới"}
                         </Button>
                     </div>

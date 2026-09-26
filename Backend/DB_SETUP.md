@@ -1,35 +1,65 @@
-# MongoDB local cho team
+# Dữ liệu MongoDB chung cho team
 
-File `db_datn_su26.archive.gz` là bản export MongoDB nén của database
-`db_datn_su26`. Mỗi người import file này một lần để có cùng dữ liệu khởi tạo.
+Dữ liệu chuẩn của team nằm trong file **`Backend/data/db-snapshot.json`**, commit
+cùng code lên GitHub. Mỗi lần backend khởi động, nó sẽ:
 
-## 1. Chạy MongoDB
+1. Lưu bản sao dữ liệu local hiện tại vào `Backend/backups/last-before-reset.json`
+   (chỉ giữ bản gần nhất, không commit).
+2. **Xoá toàn bộ dữ liệu** trong MongoDB local.
+3. Nạp lại dữ liệu từ `data/db-snapshot.json` (kèm index chống đặt trùng khung giờ).
 
-Đảm bảo MongoDB đang chạy ở `mongodb://127.0.0.1:27017`.
+Nhờ vậy sau `git pull` và chạy app, mọi máy có cùng dữ liệu.
 
-## 2. Import database
+> Dữ liệu tạo thêm trên máy local (đơn đặt, tài khoản…) sẽ **mất ở lần khởi động
+> sau**. Muốn giữ, hãy xuất lại file chuẩn và commit (xem bên dưới), hoặc đặt
+> `DB_RESET_ON_START=false` trong `.env` khi cần giữ dữ liệu tạm thời.
 
-Chạy từ thư mục `Backend`:
-
-```bash
-mongorestore --uri="mongodb://127.0.0.1:27017/db_datn_su26" --archive="db_datn_su26.archive.gz" --gzip --drop
-```
-
-`--drop` chỉ dùng khi muốn thay toàn bộ dữ liệu local bằng bản chuẩn của team.
-
-## 3. Chạy project
+## Chạy project
 
 ```bash
-# terminal 1
-cd Backend
-npm install
-PORT=3000 MONGODB_URI="mongodb://127.0.0.1:27017/db_datn_su26" npm run dev
+# Docker (khuyến nghị)
+docker compose up -d --build
 
-# terminal 2
-cd Frontend
-npm install
-VITE_BACKEND_URL="http://127.0.0.1:3000" npm run dev -- --host 0.0.0.0
+# Hoặc chạy tay với MongoDB local ở mongodb://127.0.0.1:27017
+cd Backend && npm install && npm run dev
 ```
 
-Không đặt `ALLOW_IN_MEMORY_DB=true` khi test cùng team: giá trị này tạo DB tạm
-trong RAM và dữ liệu sẽ mất khi backend khởi động lại.
+## Cập nhật dữ liệu chuẩn
+
+Khi dữ liệu đang chạy là bản muốn chia sẻ cho cả team:
+
+```bash
+# Docker
+docker compose exec backend npm run db:export
+
+# Chạy tay
+cd Backend && npm run db:export
+```
+
+Lệnh ghi đè `Backend/data/db-snapshot.json`. Commit và push file này; các máy khác
+`git pull` rồi khởi động lại backend là có dữ liệu mới.
+
+> Chú ý: lần khởi động tiếp theo sẽ nạp lại file chuẩn, nên hãy `db:export`
+> **trước** khi restart nếu muốn giữ dữ liệu vừa tạo.
+
+## Lệnh khác
+
+| Lệnh | Tác dụng |
+|---|---|
+| `npm run db:export` | Xuất dữ liệu MongoDB hiện tại ra `data/db-snapshot.json` |
+| `npm run db:reset` | Xoá và nạp lại dữ liệu chuẩn ngay, không cần restart backend |
+| `DB_RESET_ON_START=false` (trong `.env`) | Tắt việc xoá/nạp lại khi khởi động |
+
+Với Docker, thêm `docker compose exec backend` phía trước các lệnh `npm run`.
+
+## Khôi phục khi lỡ tay
+
+`Backend/backups/last-before-reset.json` có cùng định dạng với file chuẩn. Muốn
+dùng lại, chép nó đè lên `data/db-snapshot.json` rồi chạy `npm run db:reset`.
+
+## Bảo mật
+
+File chuẩn chứa email, số điện thoại khách và mật khẩu đã mã hoá của các tài
+khoản. Chỉ đẩy lên **repository private**.
+
+File `db_datn_su26.archive.gz` là bản export cũ, không còn được dùng khi khởi động.
