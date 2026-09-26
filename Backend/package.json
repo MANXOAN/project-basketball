@@ -7,7 +7,8 @@
     "start": "babel-node src/bootstrap.js",
     "seed": "babel-node src/seed.js",
     "test:rbac": "babel-node src/tests/rbac.test.js",
-    "test:payment": "babel-node src/tests/payment-flow.test.js"
+    "test:payment": "babel-node src/tests/payment-flow.test.js",
+    "test:venues": "babel-node src/tests/venue-management.test.js"
   },
   "keywords": [],
   "author": "",

@@ -13,10 +13,12 @@ import {
   checkInBooking,
 } from "../controllers/booking";
 import { adminRequired, authRequired, staffRequired } from "../middleware/auth";
+import { checkBookingAvailability } from "../controllers/bookingAvailability";
 
 const router = Router();
 router.get("/", authRequired, getBookings);
 router.get("/availability", getBookingAvailability);
+router.post("/check-availability", authRequired, checkBookingAvailability);
 router.get("/refunds", staffRequired, getRefundRequests);
 router.get("/:id/detail", authRequired, getBookingDetail);
 router.get("/:id", authRequired, getBooking);

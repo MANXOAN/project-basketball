@@ -49,6 +49,8 @@ const bookingSchema = new mongoose.Schema(
     refundReason: { type: String, default: "" },
     cancellationReason: { type: String, default: "" },
     cancelledByRole: { type: String, default: "" },
+    cancelledAt: { type: Date, default: null },
+    pendingAdjustmentId: { type: String, default: "", index: true },
     checkedInAt: { type: Date, default: null },
     createdBy: { type: Number, default: null, index: true },
     createdAt: { type: String },

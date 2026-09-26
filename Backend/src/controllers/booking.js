@@ -5,11 +5,14 @@ import Payment from "../models/Payment";
 import BookingGroup from "../models/BookingGroup";
 import BookingSlot from "../models/BookingSlot";
 import Notification from "../models/Notification";
+import BookingHistory from "../models/BookingHistory";
+import BookingAdjustment from "../models/BookingAdjustment";
 import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 import Voucher from "../models/Voucher";
 import { sendMail } from "../utils/mailer";
 import { bookingModeFor, expandBookingSchedule } from "../services/bookingPlan";
+import { appendBookingHistory, syncBookingGroup } from "../services/bookingGroupService";
 import {
   calculateVoucherDiscount,
   normalizeVoucherCode,
@@ -155,6 +158,7 @@ export async function expirePendingPayments() {
   const expiredIds = expired.map((booking) => booking.id);
   const expiredGroupIds = [...new Set(expired.map((booking) => booking.bookingGroupId).filter(Boolean))];
   if (expiredIds.length) {
+    await BookingHistory.insertMany(expired.map((booking) => ({ bookingId: booking.id, bookingGroupId: booking.bookingGroupId || "", changeType: "cancel", source: "system", reason: "payment_expired", fieldBefore: { status: "pending" }, fieldAfter: { status: "cancelled" }, statusBefore: "pending", statusAfter: "cancelled" })));
     await BookingSlot.deleteMany({ bookingId: { $in: expiredIds } });
   }
   await Booking.updateMany(
@@ -240,13 +244,14 @@ export async function getBookingDetail(req, res) {
     const reservedCourtIds = booking.reservedCourtIds?.length
       ? booking.reservedCourtIds
       : [booking.courtId];
-    const [field, court, reservedCourts, groupBookings] = await Promise.all([
+    const [field, court, reservedCourts, groupBookings, history] = await Promise.all([
       Field.findOne({ id: booking.fieldId }),
       Court.findOne({ id: booking.courtId }),
       Court.find({ id: { $in: reservedCourtIds } }).sort({ id: 1 }),
       booking.bookingGroupId
         ? Booking.find({ bookingGroupId: booking.bookingGroupId }).sort({ date: 1, time: 1, id: 1 })
         : Promise.resolve([booking]),
+      BookingHistory.find({ bookingId: id }).sort({ changedAt: -1 }),
     ]);
     const data = serialize(booking);
     return res.json({
@@ -276,6 +281,7 @@ export async function getBookingDetail(req, res) {
       })),
       groupSchedule: groupBookings.map((groupBooking) => ({
         id: groupBooking.id,
+        courtId: groupBooking.courtId,
         date: groupBooking.date,
         time: groupBooking.time,
         duration: groupBooking.duration,
@@ -283,6 +289,7 @@ export async function getBookingDetail(req, res) {
         status: groupBooking.status,
         paymentStatus: groupBooking.paymentStatus,
       })),
+      history: serializeMany(history),
     });
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -348,6 +355,7 @@ export async function createBooking(req, res) {
       date,
       recurringDates,
       scheduleSegments,
+      occurrences: explicitOccurrences,
       time,
       duration,
       customer,
@@ -357,7 +365,7 @@ export async function createBooking(req, res) {
       bookingMode,
     } = req.body;
 
-    const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments });
+    const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments, occurrences: explicitOccurrences });
     const dur = Number(duration) || 1;
     const numericCourtId = Number(courtId);
     const numericFieldId = Number(fieldId);
@@ -519,13 +527,28 @@ export async function createBooking(req, res) {
         status: isComplimentaryBooking ? "confirmed" : "pending",
         paymentExpiresAt,
         userId: bookingCustomer.userId || null,
+        createdBy: Number(req.user.id),
+        paymentMethod: normalizedPaymentMethod,
+        discountAmount: calculatedDiscount,
         voucherCode: normalizedVoucherCode,
         voucherClaimed: false,
         voucherUsageReleased: false,
       });
+      await BookingHistory.insertMany(occurrences.map((occurrence, index) => ({
+        bookingId: bookingIds[index],
+        bookingGroupId,
+        changeType: "create",
+        changedBy: Number(req.user.id),
+        source: req.user.role === "manager" || req.user.role === "admin" ? req.user.role : "user",
+        reason: "booking_created",
+        fieldBefore: null,
+        fieldAfter: { fieldId: numericFieldId, courtId: numericCourtId, date: occurrence.date, time: occurrence.time, duration: dur, total: splitAmount(calculatedTotal, occurrences.length, index) },
+        statusAfter: isComplimentaryBooking ? "confirmed" : "pending",
+      })));
     } catch (error) {
       await BookingGroup.deleteOne({ id: bookingGroupId });
       await Booking.deleteMany({ id: { $in: createdBookingIds } });
+      await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
       await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
       throw error;
     }
@@ -539,6 +562,7 @@ export async function createBooking(req, res) {
       if (!claimedVoucher) {
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Voucher vừa hết lượt hoặc không còn hiệu lực" });
       }
@@ -550,6 +574,7 @@ export async function createBooking(req, res) {
         await Voucher.updateOne({ id: voucher.id, used: { $gt: 0 } }, {$inc: { used: -1 } });
         await BookingGroup.deleteOne({ id: bookingGroupId });
         await Booking.deleteMany({ id: { $in: createdBookingIds } });
+        await BookingHistory.deleteMany({ bookingId: { $in: bookingIds } });
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Không thể ghi nhận lượt sử dụng voucher" });
       }
@@ -595,6 +620,7 @@ export async function updateBooking(req, res) {
       { new: true, runValidators: true }
     );
 
+    await appendBookingHistory({ booking: b, changeType: "update", user: req.user, reason: "customer_contact_updated", before: { customer: current.customer }, after: { customer: b.customer }, statusBefore: current.status, statusAfter: b.status });
     return res.json(serialize(b));
   } catch (e) {
     return res.status(400).json({ message: e.message });
@@ -612,39 +638,13 @@ export async function cancelBooking(req, res) {
     if (["cancelled", "completed"].includes(booking.status)) {
       return res.status(400).json({ message: "Đơn này không thể hủy" });
     }
+    if (vietnamBookingStartMs(booking.date, booking.time) <= Date.now()) {
+      return res.status(409).json({ message: "Không thể hủy buổi đã qua hoặc đang diễn ra" });
+    }
 
     const policy = cancellationPolicy(booking, req.user, String(req.body.cancellationType || ""));
     if (policy.refundAmount > 0 && !policy.staffCancellation && (!req.body.refundStk || !req.body.refundBank)) {
       return res.status(400).json({ message: "Cần số tài khoản và ngân hàng để hoàn tiền" });
-    }
-
-    if (refundableAmount(booking) === 0 && booking.bookingGroupId) {
-      const groupBookings = await Booking.find({
-        bookingGroupId: booking.bookingGroupId,
-        status: "pending",
-        paymentStatus: "unpaid",
-      }).select("id");
-      const groupBookingIds = groupBookings.map((item) => item.id);
-      if (groupBookingIds.length) {
-        await Booking.updateMany(
-          { id: { $in: groupBookingIds } },
-          { $set: {
-            status: "cancelled",
-            cancellationReason: policy.reason,
-            refundReason: policy.reason,
-            refundRate: 0,
-            cancelledByRole: req.user?.role || "user",
-          } }
-        );
-        await BookingSlot.deleteMany({ bookingId: { $in: groupBookingIds } });
-        await BookingGroup.updateOne(
-          { id: booking.bookingGroupId, paymentStatus: "unpaid" },
-          { $set: { status: "cancelled" } }
-        );
-        await releaseVoucherUsageForGroups([booking.bookingGroupId]);
-        const updatedGroupBooking = await Booking.findOne({ id });
-        return res.json({ ...serialize(updatedGroupBooking), cancelledGroupSize: groupBookingIds.length, cancelledBookingIds: groupBookingIds });
-      }
     }
 
     const updated = await Booking.findOneAndUpdate(
@@ -659,10 +659,24 @@ export async function cancelBooking(req, res) {
         refundReason: policy.reason,
         cancellationReason: policy.reason,
         cancelledByRole: req.user?.role || "user",
+        cancelledAt: new Date(),
       } },
       { new: true }
     );
     await BookingSlot.deleteMany({ bookingId: id });
+    await BookingAdjustment.updateMany({ bookingId: id, status: "pending_payment" }, { $set: { status: "cancelled", failureReason: "booking_cancelled" } });
+    const updatedGroup = await syncBookingGroup(booking.bookingGroupId);
+    if (policy.refundAmount > 0 && booking.bookingGroupId) {
+      await BookingGroup.updateOne({ id: booking.bookingGroupId }, { $inc: { refundAmount: policy.refundAmount }, $set: { paymentStatus: "partially_refunded" } });
+    }
+    if (updatedGroup?.status === "cancelled" && updatedGroup.paymentStatus === "unpaid") {
+      await releaseVoucherUsageForGroups([booking.bookingGroupId]);
+    }
+    await appendBookingHistory({
+      booking: updated, changeType: "cancel", user: req.user, reason: policy.reason,
+      before: { status: booking.status }, after: { status: updated.status, refundAmount: policy.refundAmount },
+      paymentDelta: -policy.refundAmount, statusBefore: booking.status, statusAfter: updated.status,
+    });
 
     if (updated.customer?.email && policy.refundAmount > 0) {
       const destination = policy.staffCancellation
@@ -686,8 +700,9 @@ export async function completeRefund(req, res) {
     const booking = await Booking.findOne({ id });
     if (!booking) return res.status(404).json({ message: "Không tìm thấy đơn đặt sân" });
     const isDuplicatePaymentRefund = booking.refundReason === "duplicate_or_expired_payment";
+    const isRescheduleRefund = booking.refundReason === "reschedule_price_difference";
     if (booking.refundStatus !== "pending" ||
-        (booking.status !== "cancelled" && !isDuplicatePaymentRefund)) {
+        (booking.status !== "cancelled" && !isDuplicatePaymentRefund && !isRescheduleRefund)) {
       return res.status(400).json({ message: "Đơn không có yêu cầu hoàn tiền đang chờ" });
     }
     const completedPaymentStatus = Number(booking.refundAmount) > 0 && Number(booking.refundAmount) < refundableAmount(booking)
@@ -706,12 +721,16 @@ export async function completeRefund(req, res) {
       { bookingId: id, paymentCode: `REFUND_${id}`, paymentKind: "refund", gateway: "manual", amount: updated.refundAmount, status: "success", paidAt: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    if (isRescheduleRefund) {
+      await BookingAdjustment.updateMany({ bookingId: id, status: "refund_pending" }, { $set: { status: "refunded" } });
+    }
     if (isDuplicatePaymentRefund) {
       await Payment.updateMany(
         { bookingId: id, status: "refund_pending" },
         { $set: { status: "refunded" } }
       );
     }
+    await appendBookingHistory({ booking: updated, changeType: "refund", user: req.user, reason: updated.refundReason, before: { refundStatus: booking.refundStatus }, after: { refundStatus: updated.refundStatus, refundAmount: updated.refundAmount }, paymentDelta: -Number(updated.refundAmount || 0), statusBefore: booking.status, statusAfter: updated.status });
     const notificationId = await nextId("notifications");
     await Notification.findOneAndUpdate(
       { bookingId: id, type: "refund_completed" },

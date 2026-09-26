@@ -9,9 +9,12 @@ import Field from "../models/Field";
 import Court from "../models/Court";
 import Payment from "../models/Payment";
 import BookingSlot from "../models/BookingSlot";
+import BookingHistory from "../models/BookingHistory";
 import Voucher from "../models/Voucher";
 import { cancelBooking, completeRefund, createBooking, expirePendingPayments, getBookingDetail, getRefundRequests } from "../controllers/booking";
+import { checkBookingAvailability } from "../controllers/bookingAvailability";
 import { processVnpayCallback } from "../services/vnpayPayment";
+import { requestBookingReschedule } from "../services/bookingGroupService";
 import { buildPaymentConfirmationEmail } from "../utils/bookingEmail";
 import { setCounter } from "../utils/ids";
 import { createVoucher, validateVoucher } from "../controllers/voucher";
@@ -210,6 +213,33 @@ async function run() {
     assert.equal(groupedResponse.result.body.groupTotal, 1500000);
     assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: groupedResponse.result.body.bookingIds } }), 30);
 
+    const availabilityResponse = responseRecorder();
+    await checkBookingAvailability({
+      body: {
+        courtId: 11, duration: 1, bookingMode: "court",
+        occurrences: [{ date: "2030-01-05", time: "08:00" }, { date: "2030-01-06", time: "08:00" }],
+      },
+    }, availabilityResponse.res);
+    assert.equal(availabilityResponse.result.statusCode, 200);
+    assert.equal(availabilityResponse.result.body.available, false);
+    assert.equal(availabilityResponse.result.body.conflicts.length, 1);
+    assert.equal(availabilityResponse.result.body.conflicts[0].date, "2030-01-05");
+    assert(availabilityResponse.result.body.conflicts[0].suggestions.length > 0);
+
+    const adjustedScheduleResponse = responseRecorder();
+    await createBooking({
+      user: { id: 53, email: "adjusted@example.com", fullName: "Khách đổi giờ", role: "user" },
+      body: {
+        fieldId: 10, courtId: 13, date: "2030-04-10", time: "15:00", duration: 1,
+        occurrences: [{ date: "2030-04-10", time: "15:00" }, { date: "2030-04-17", time: "16:00" }],
+        customer: { fullName: "Khách đổi giờ", phone: "0922222222" },
+        services: [], paymentMethod: "cash",
+      },
+    }, adjustedScheduleResponse.res);
+    assert.equal(adjustedScheduleResponse.result.statusCode, 201);
+    const adjustedMembers = await Booking.find({ bookingGroupId: adjustedScheduleResponse.result.body.bookingGroupId }).sort({ date: 1 });
+    assert.deepEqual(adjustedMembers.map((item) => item.time), ["15:00", "16:00"]);
+
     const detailResponse = responseRecorder();
     await getBookingDetail({
       user: { id: 50, role: "user" },
@@ -258,10 +288,12 @@ async function run() {
       body: {},
     }, cancelResponse.res);
     assert.equal(cancelResponse.result.statusCode, 200);
-    assert.equal(cancelResponse.result.body.cancelledGroupSize, 2);
-    assert.deepEqual(cancelResponse.result.body.cancelledBookingIds.sort((a, b) => a - b), cancellableResponse.result.body.bookingIds.sort((a, b) => a - b));
-    assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: cancellableResponse.result.body.bookingIds } }), 0);
-    assert.equal((await BookingGroup.findOne({ id: cancellableResponse.result.body.bookingGroupId })).status, "cancelled");
+    assert.equal(cancelResponse.result.body.id, cancellableResponse.result.body.id);
+    assert.equal(cancelResponse.result.body.status, "cancelled");
+    const remainingChild = await Booking.findOne({ id: cancellableResponse.result.body.bookingIds[1] });
+    assert.equal(remainingChild.status, "pending");
+    assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: cancellableResponse.result.body.bookingIds } }), 2);
+    assert.equal((await BookingGroup.findOne({ id: cancellableResponse.result.body.bookingGroupId })).status, "pending");
 
     await Payment.create({
       bookingId: groupedResponse.result.body.id,
@@ -281,6 +313,107 @@ async function run() {
     assert.equal(paidGroup.paidAmount, 1500000);
     assert.equal(paidMembers.length, 5);
     assert(paidMembers.every((member) => member.paymentStatus === "paid" && member.status === "confirmed"));
+    const rescheduleMember = await Booking.findOne({ id: groupedResponse.result.body.id });
+    const surchargeRequest = await requestBookingReschedule({
+      booking: rescheduleMember,
+      input: { newFieldId: 10, newCourtId: 11, newDate: "2030-05-01", newTime: "08:00", newDuration: 1.5, reason: "Đổi lịch có phụ thu" },
+      user: { id: 50, role: "user" },
+    });
+    assert.equal(surchargeRequest.status, "requires_payment");
+    assert.equal(surchargeRequest.adjustment.paymentDelta, 150000);
+    assert.equal((await Booking.findOne({ id: rescheduleMember.id })).date, "2030-01-05");
+    assert.equal(await BookingSlot.countDocuments({ bookingId: rescheduleMember.id, date: "2030-01-05" }), 6);
+
+    await Payment.create({
+      bookingId: rescheduleMember.id,
+      bookingGroupId: groupId,
+      adjustmentId: surchargeRequest.adjustment.id,
+      paymentCode: "group_reschedule_adjustment",
+      gateway: "vnpay",
+      paymentKind: "adjustment",
+      amount: 150000,
+      status: "pending",
+    });
+    const surchargePayment = await processVnpayCallback(
+      signedQuery("group_reschedule_adjustment", 150000, "TXNADJ01")
+    );
+    assert.equal(surchargePayment.state, "success");
+    const rescheduledMember = await Booking.findOne({ id: rescheduleMember.id });
+    assert.equal(rescheduledMember.date, "2030-05-01");
+    assert.equal(rescheduledMember.duration, 1.5);
+    assert.equal(rescheduledMember.total, 450000);
+    assert.equal(await BookingSlot.countDocuments({ bookingId: rescheduleMember.id, date: "2030-01-05" }), 0);
+    assert.equal(await BookingSlot.countDocuments({ bookingId: rescheduleMember.id, date: "2030-05-01" }), 9);
+
+    const refundDifference = await requestBookingReschedule({
+      booking: rescheduledMember,
+      input: { newFieldId: 10, newCourtId: 11, newDate: "2030-05-02", newTime: "08:00", newDuration: 1, reason: "Đổi sang buổi rẻ hơn" },
+      user: { id: 50, role: "user" },
+    });
+    assert.equal(refundDifference.status, "refund_pending");
+    assert.equal(refundDifference.adjustment.paymentDelta, -150000);
+    const cheaperMember = await Booking.findOne({ id: rescheduleMember.id });
+    assert.equal(cheaperMember.refundStatus, "pending");
+    assert.equal(cheaperMember.refundAmount, 150000);
+    const rescheduleRefundResponse = responseRecorder();
+    await completeRefund({ user: { id: 900, role: "admin" }, params: { id: String(cheaperMember.id) } }, rescheduleRefundResponse.res);
+    assert.equal(rescheduleRefundResponse.result.statusCode, 200);
+    assert.equal(rescheduleRefundResponse.result.body.status, "confirmed");
+    assert.equal(rescheduleRefundResponse.result.body.refundStatus, "completed");
+
+    const postRefundMember = await Booking.findOne({ id: cheaperMember.id });
+    await assert.rejects(
+      requestBookingReschedule({
+        booking: postRefundMember,
+        input: { newFieldId: 10, newCourtId: 11, newDate: "2030-01-12", newTime: "08:00", newDuration: 1, reason: "Xung đột" },
+        user: { id: 50, role: "user" },
+      }),
+      /người khác đặt/
+    );
+    assert.equal((await Booking.findOne({ id: rescheduleMember.id })).date, "2030-05-02");
+    assert.equal(await BookingHistory.countDocuments({ bookingId: rescheduleMember.id, changeType: "reschedule" }), 2);
+    assert.equal(await BookingHistory.countDocuments({ bookingId: rescheduleMember.id, changeType: "payment", reason: "adjustment_paid" }), 1);
+
+    const lateConflictRequest = await requestBookingReschedule({
+      booking: await Booking.findOne({ id: rescheduleMember.id }),
+      input: { newFieldId: 10, newCourtId: 11, newDate: "2030-06-01", newTime: "08:00", newDuration: 1.5, reason: "late_conflict" },
+      user: { id: 50, role: "user" },
+    });
+    assert.equal(lateConflictRequest.status, "requires_payment");
+    await BookingSlot.create({ bookingId: 998, courtId: 11, date: "2030-06-01", time: "08:00" });
+    await Payment.create({
+      bookingId: rescheduleMember.id, bookingGroupId: groupId, adjustmentId: lateConflictRequest.adjustment.id,
+      paymentCode: "group_reschedule_late_conflict", gateway: "vnpay", paymentKind: "adjustment",
+      amount: lateConflictRequest.adjustment.paymentDelta, status: "pending",
+    });
+    const lateConflictPayment = await processVnpayCallback(signedQuery("group_reschedule_late_conflict", lateConflictRequest.adjustment.paymentDelta, "TXNADJ02"));
+    assert.equal(lateConflictPayment.state, "refund_pending");
+    assert.equal((await Booking.findOne({ id: rescheduleMember.id })).date, "2030-05-02");
+    assert.equal((await Payment.findOne({ paymentCode: "group_reschedule_late_conflict" })).status, "refund_pending");
+
+    await Booking.create({
+      id: 399,
+      fieldId: 10,
+      courtId: 11,
+      fieldName: "Cơ sở ba sân",
+      court: "Sân 1",
+      date: "2020-01-01",
+      time: "08:00",
+      duration: 1,
+      total: 100000,
+      customer: { fullName: "Khách cũ", phone: "0900000399", userId: 50 },
+      paymentMethod: "full",
+      paymentStatus: "paid",
+      status: "confirmed",
+    });
+    await assert.rejects(
+      requestBookingReschedule({
+        booking: await Booking.findOne({ id: 399 }),
+        input: { newDate: "2030-06-01", newTime: "08:00", newDuration: 1, newCourtId: 11, newFieldId: 10 },
+        user: { id: 50, role: "user" },
+      }),
+      /đã qua/
+    );
     assert.equal((await processVnpayCallback(groupPaymentQuery)).state, "success");
 
     await Payment.create({
@@ -362,7 +495,7 @@ async function run() {
     const cancellationCases = [
       { id: 300, offsetMinutes: 181, role: "user", expectedAmount: 100000, expectedRate: 100, expectedReason: "customer_early_100", body: { refundBank: "VCB", refundStk: "001" } },
       { id: 301, offsetMinutes: 61, role: "user", expectedAmount: 50000, expectedRate: 50, expectedReason: "customer_late_50", body: { refundBank: "VCB", refundStk: "002", cancellationType: "maintenance" } },
-      { id: 302, offsetMinutes: -1, role: "user", expectedAmount: 0, expectedRate: 0, expectedReason: "customer_no_refund", body: {} },
+      { id: 302, offsetMinutes: -1, role: "user", expectedStatus: 409, expectedAmount: 0, expectedRate: 0, expectedReason: "customer_no_refund", body: {} },
       { id: 303, offsetMinutes: 61, role: "manager", expectedAmount: 100000, expectedRate: 100, expectedReason: "maintenance", body: { cancellationType: "maintenance" } },
     ];
     for (const testCase of cancellationCases) {
@@ -383,7 +516,11 @@ async function run() {
         params: { id: String(testCase.id) },
         body: testCase.body,
       }, cancelPolicyResponse.res);
-      assert.equal(cancelPolicyResponse.result.statusCode, 200);
+      assert.equal(cancelPolicyResponse.result.statusCode, testCase.expectedStatus || 200);
+      if (testCase.expectedStatus) {
+        assert.equal(await BookingSlot.countDocuments({ bookingId: testCase.id }), 1);
+        continue;
+      }
       assert.equal(cancelPolicyResponse.result.body.refundAmount, testCase.expectedAmount);
       assert.equal(cancelPolicyResponse.result.body.refundRate, testCase.expectedRate);
       assert.equal(cancelPolicyResponse.result.body.refundReason, testCase.expectedReason);

@@ -15,9 +15,16 @@ function weeklyDates(startDate, endDate) {
   return dates;
 }
 
-export function expandBookingSchedule({ date, recurringDates, time, scheduleSegments }) {
+export function expandBookingSchedule({ date, recurringDates, time, scheduleSegments, occurrences: explicitOccurrences }) {
   const occurrences = [];
-  if (Array.isArray(scheduleSegments) && scheduleSegments.length) {
+  if (Array.isArray(explicitOccurrences) && explicitOccurrences.length > 60) {
+    throw new Error("Số buổi đặt tối đa là 60");
+  }
+  if (Array.isArray(explicitOccurrences) && explicitOccurrences.length) {
+    explicitOccurrences.forEach((occurrence) => {
+      occurrences.push({ date: String(occurrence?.date || ""), time: String(occurrence?.time || ""), segmentIndex: 0 });
+    });
+  } else if (Array.isArray(scheduleSegments) && scheduleSegments.length) {
     if (scheduleSegments.length > 12) {
       throw new Error("Tối đa 12 giai đoạn đặt lịch");
     }

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, CalendarDays, Clock, MapPin, CheckCircle, XCircle, AlertCircle, RefreshCw, QrCode, FileText, Phone, Navigation } from "lucide-react";
-import { api, Booking, formatCurrency } from "../lib/api";
+import { Loader2, CalendarDays, Clock, MapPin, CheckCircle, XCircle, AlertCircle, RefreshCw, QrCode, FileText, Phone, Navigation, Pencil, History } from "lucide-react";
+import { api, Booking, formatCurrency, type Court, type Field } from "../lib/api";
 import { getUser } from "../lib/auth";
 import toast from "react-hot-toast";
 import BookingPass from "../components/BookingPass";
+import BookingRescheduleModal from "../components/BookingRescheduleModal";
 
 const statusConfig: Record<string, { label: string; className: string; icon: React.ReactNode; dot: string }> = {
   pending: {
@@ -32,6 +33,8 @@ const statusConfig: Record<string, { label: string; className: string; icon: Rea
     dot: "bg-yellow-400",
   },
 };
+
+const historyLabels: Record<BookingHistoryEntry["changeType"], string> = { create: "Tạo buổi", update: "Cập nhật", cancel: "Hủy buổi", reschedule: "Đổi lịch", refund: "Hoàn tiền", payment: "Thanh toán" };
 
 function getBookingStartMs(booking: Booking) {
   const date = String(booking.date || "");
@@ -85,6 +88,17 @@ type BookingDetail = Booking & {
     status: string;
     paymentStatus: string;
   }>;
+  history?: BookingHistoryEntry[];
+};
+
+type BookingHistoryEntry = {
+  _id?: string;
+  changeType: "create" | "update" | "cancel" | "reschedule" | "refund" | "payment";
+  changedAt: string;
+  reason?: string;
+  paymentDelta?: number;
+  fieldBefore?: Record<string, unknown> | null;
+  fieldAfter?: Record<string, unknown> | null;
 };
 
 type RefundNotification = {
@@ -112,6 +126,23 @@ export default function MyBookings() {
     isOpen: false,
     loading: false,
     detail: null,
+  });
+  const [rescheduleModal, setRescheduleModal] = useState<{
+    isOpen: boolean;
+    booking: Booking | null;
+    fields: Field[];
+    courts: Court[];
+    fieldId: number;
+    courtId: number;
+    date: string;
+    time: string;
+    duration: number;
+    reason: string;
+    submitting: boolean;
+    error: string;
+  }>({
+    isOpen: false, booking: null, fields: [], courts: [], fieldId: 0, courtId: 0,
+    date: "", time: "", duration: 1, reason: "", submitting: false, error: "",
   });
 
   const load = useCallback(async () => {
@@ -244,12 +275,53 @@ export default function MyBookings() {
     }
   };
 
-  const payBalance = (booking: Booking) => {
-    navigate("/paygate", { state: { balanceBooking: booking } });
+  const openPayment = async (booking: Booking, balance = false) => {
+    try {
+      const response = await api.get<BookingDetail>("/bookings/" + booking.id + "/detail");
+      navigate("/paygate", { state: balance ? { balanceBooking: response.data } : { booking: response.data } });
+    } catch {
+      navigate("/paygate", { state: balance ? { balanceBooking: booking } : { booking } });
+    }
   };
 
-  const resumePayment = (booking: Booking) => {
-    navigate("/paygate", { state: { booking } });
+  const payBalance = (booking: Booking) => void openPayment(booking, true);
+  const resumePayment = (booking: Booking) => void openPayment(booking);
+
+  const openReschedule = async (booking: Booking) => {
+    setRescheduleModal({ isOpen: true, booking, fields: [], courts: [], fieldId: booking.fieldId, courtId: booking.courtId, date: booking.date, time: booking.time, duration: booking.duration || 1, reason: "", submitting: false, error: "" });
+    try {
+      const [fieldResponse, courtResponse] = await Promise.all([api.get<Field[]>("/fields"), api.get<Court[]>("/courts")]);
+      setRescheduleModal((current) => ({ ...current, fields: fieldResponse.data, courts: courtResponse.data }));
+    } catch {
+      setRescheduleModal((current) => ({ ...current, error: "Không tải được danh sách sân. Vui lòng đóng và thử lại." }));
+    }
+  };
+
+  const submitReschedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const booking = rescheduleModal.booking;
+    if (!booking?.bookingGroupId) return;
+    setRescheduleModal((current) => ({ ...current, submitting: true, error: "" }));
+    try {
+      const response = await api.patch("/booking-groups/" + booking.bookingGroupId + "/children/" + booking.id, {
+        newFieldId: rescheduleModal.fieldId, newCourtId: rescheduleModal.courtId, newDate: rescheduleModal.date,
+        newTime: rescheduleModal.time, newDuration: rescheduleModal.duration, reason: rescheduleModal.reason,
+      });
+      if (response.data.status === "requires_payment") {
+        const adjustment = response.data.adjustment;
+        const paymentResponse = await api.post("/vnpay/create-url", {
+          orderId: String(booking.id), amount: adjustment.paymentDelta, paymentKind: "adjustment", adjustmentId: adjustment.id, language: "vn",
+        });
+        window.location.href = paymentResponse.data.paymentUrl;
+        return;
+      }
+      toast.success(response.data.message || "Đổi lịch thành công");
+      setRescheduleModal((current) => ({ ...current, isOpen: false, submitting: false }));
+      await load();
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Đổi lịch thất bại, đơn cũ đã được giữ nguyên";
+      setRescheduleModal((current) => ({ ...current, submitting: false, error: message }));
+    }
   };
 
   const openTicket = async (booking: Booking) => {
@@ -400,6 +472,7 @@ export default function MyBookings() {
                     <div className="flex items-center gap-3">
                       <div className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />
                       <span className="font-mono font-bold text-slate-900 text-base">{bookingCode}</span>
+                      {b.groupSize && b.groupSize > 1 && <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">Đơn đặt sân tổng · buổi con</span>}
                       <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full ${st.className}`}>
                         {st.icon}
                         {st.label}
@@ -491,6 +564,12 @@ export default function MyBookings() {
                           Xem chi tiết
                         </button>
 
+                        {b.bookingGroupId && ["pending", "confirmed"].includes(b.status) && (
+                          <button type="button" onClick={() => openReschedule(b)} className="min-h-11 border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 rounded-xl flex items-center gap-1.5">
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Đổi buổi này
+                          </button>
+                        )}
+
                         {b.status !== "cancelled" && (
                         <button
                           type="button"
@@ -539,7 +618,7 @@ export default function MyBookings() {
                             onClick={() => openCancelModal(b)}
                             className="text-rose-400 hover:bg-rose-500/10 border border-rose-500/20 text-xs font-bold px-3.5 py-2 rounded-xl transition-all"
                           >
-                            Hủy đơn
+                            {b.groupSize && b.groupSize > 1 ? "Hủy buổi này" : "Hủy đơn"}
                           </button>
                         )}
 
@@ -670,6 +749,22 @@ export default function MyBookings() {
                         </div>
                       )}
 
+                      {detail.history && detail.history.length > 0 && (
+                        <section className="rounded-2xl border border-slate-200 p-4" aria-label="Lịch sử thay đổi của buổi này">
+                          <h3 className="flex items-center gap-2 text-sm font-black text-slate-950"><History className="h-4 w-4 text-amber-600" aria-hidden="true" /> Lịch sử buổi này</h3>
+                          <ol className="mt-3 space-y-3 border-l-2 border-amber-200 pl-4">
+                            {detail.history.map((entry, index) => (
+                              <li key={entry._id || entry.changedAt + index} className="relative">
+                                <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-amber-500 ring-4 ring-white" />
+                                <div className="text-sm font-bold text-slate-900">{historyLabels[entry.changeType] || entry.changeType}</div>
+                                <div className="mt-0.5 text-xs text-slate-500">{new Date(entry.changedAt).toLocaleString("vi-VN")}{entry.reason ? " · " + entry.reason : ""}</div>
+                                {Number(entry.paymentDelta || 0) !== 0 && <div className={"mt-1 text-xs font-bold " + (Number(entry.paymentDelta) > 0 ? "text-rose-600" : "text-emerald-700")}>{Number(entry.paymentDelta) > 0 ? "Phụ thu " : "Hoàn/giảm "}{formatCurrency(Math.abs(Number(entry.paymentDelta)))}</div>}
+                              </li>
+                            ))}
+                          </ol>
+                        </section>
+                      )}
+
                       {detail.field?.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone className="h-4 w-4 text-amber-600" /> Liên hệ sân: <a className="font-bold text-slate-950" href={`tel:${detail.field.phone}`}>{detail.field.phone}</a></div>}
                     </>
                   )}
@@ -680,13 +775,15 @@ export default function MyBookings() {
           );
         })()}
 
+        <BookingRescheduleModal state={rescheduleModal} setState={setRescheduleModal} onSubmit={submitReschedule} />
+
         {/* Cancel Refund Modal */}
         {cancelModal.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-white border border-rose-200 rounded-3xl p-8 max-w-md w-full shadow-xl relative">
               <h3 className="text-xl font-black text-slate-950 mb-2 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-400" />
-                Hủy đơn & Chính sách hoàn tiền
+                Hủy buổi đặt sân & Chính sách hoàn tiền
               </h3>
               <p className="text-slate-500 text-xs mb-6 leading-relaxed">
                 {cancelModal.refundRate === 100
@@ -744,7 +841,7 @@ export default function MyBookings() {
                   onClick={submitCancel}
                   className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-3 rounded-xl font-bold text-sm transition-colors"
                 >
-                  Xác nhận hủy đơn
+                  Xác nhận hủy buổi
                 </button>
               </div>
             </div>

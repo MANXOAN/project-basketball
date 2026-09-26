@@ -3,6 +3,7 @@ import qs from "qs";
 import Booking from "../models/Booking";
 import Payment from "../models/Payment";
 import BookingGroup from "../models/BookingGroup";
+import { appendBookingHistory, applyPaidAdjustment } from "./bookingGroupService";
 import { sendMail } from "../utils/mailer";
 import {
   buildPaymentConfirmationEmail,
@@ -119,7 +120,7 @@ async function applyGroupPayment(booking, payment) {
   );
   if (!claimedGroup) return { claimed: false, booking };
 
-  const members = await Booking.find({ bookingGroupId: group.id }).sort({ id: 1 });
+  const members = await Booking.find({ bookingGroupId: group.id, status: { $ne: "cancelled" } }).sort({ id: 1 });
   for (const [index, member] of members.entries()) {
     const memberPaidAmount = nextPaymentStatus === "paid"
       ? Number(member.total)
@@ -135,8 +136,9 @@ async function applyGroupPayment(booking, payment) {
         },
       }
     );
+    await appendBookingHistory({ booking: member, changeType: "payment", reason: `group_${payment.paymentKind}_paid`, before: { paymentStatus: member.paymentStatus, paidAmount: member.paidAmount }, after: { paymentStatus: nextPaymentStatus, paidAmount: memberPaidAmount }, paymentDelta: memberPaidAmount - Number(member.paidAmount || 0), statusBefore: member.status, statusAfter: "confirmed" });
   }
-  const updatedPrimary = await Booking.findOne({ id: group.primaryBookingId });
+  const updatedPrimary = await Booking.findOne({ id: group.primaryBookingId, status: { $ne: "cancelled" } }) || await Booking.findOne({ id: members[0]?.id });
   const emailBooking = updatedPrimary
     ? {
       ...updatedPrimary.toObject(),
@@ -224,6 +226,18 @@ export async function processVnpayCallback(query) {
     });
   }
 
+  if (claimedPayment.paymentKind === "adjustment") {
+    try {
+      const applied = await applyPaidAdjustment(claimedPayment.adjustmentId);
+      await appendBookingHistory({ booking: applied.booking, changeType: "payment", reason: "adjustment_paid", before: null, after: { adjustmentId: claimedPayment.adjustmentId }, paymentDelta: Number(claimedPayment.amount), statusBefore: booking.status, statusAfter: applied.booking.status });
+      queuePaymentEmail(applied.booking, claimedPayment, false);
+      return callbackResult({ payment: claimedPayment, booking: applied.booking, state: "success", message: "Thanh toán phụ thu và đổi lịch thành công" });
+    } catch (error) {
+      const refundPayment = await Payment.findOneAndUpdate({ _id: claimedPayment._id }, { $set: { status: "refund_pending", failureReason: "adjustment_apply_failed" } }, { new: true });
+      return callbackResult({ payment: refundPayment || claimedPayment, booking, state: "refund_pending", message: `Đổi lịch thất bại, đơn cũ được giữ nguyên và khoản phụ thu đang chờ hoàn: ${error.message}` });
+    }
+  }
+
   const groupedResult = await applyGroupPayment(booking, claimedPayment);
   const updatedBooking = groupedResult
     ? (groupedResult.claimed ? groupedResult.booking : null)
@@ -256,6 +270,7 @@ export async function processVnpayCallback(query) {
     });
   }
 
+  if (!groupedResult) await appendBookingHistory({ booking: updatedBooking, changeType: "payment", reason: `${claimedPayment.paymentKind}_paid`, before: { paymentStatus: booking.paymentStatus, paidAmount: booking.paidAmount }, after: { paymentStatus: updatedBooking.paymentStatus, paidAmount: updatedBooking.paidAmount }, paymentDelta: Number(claimedPayment.amount), statusBefore: booking.status, statusAfter: updatedBooking.status });
   queuePaymentEmail(updatedBooking, claimedPayment, false);
   return callbackResult({
     payment: claimedPayment,
