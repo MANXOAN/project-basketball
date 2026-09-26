@@ -189,4 +189,4 @@ Máy tạo note đang dùng Node.js 16.20.2 nên Vite dừng với yêu cầu No
 
 ## 7. Cập nhật tiếp theo
 
-Các mục audit log, đổi buổi, phụ thu/hoàn chênh lệch và CRUD sân manager đã được triển khai ở đợt tiếp theo. Xem checklist đầy đủ tại `BOOKING_GROUP_FULL_HANDOFF.md`.
+Các mục audit log, đổi buổi, phụ thu/hoàn chênh lệch và CRUD sân manager đã được triển khai ở đợt tiếp theo. Xem checklist đầy đủ tại `UPDATE_NOTE_2026-09-26.md`.
