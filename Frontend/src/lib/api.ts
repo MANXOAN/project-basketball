@@ -1,5 +1,7 @@
 import axios from "axios";
 import { cachedGet, invalidateApiCache } from "./apiCache";
+import { clearAuth } from "./auth";
+import toast from "react-hot-toast";
 
 // src/lib/api.ts
 // Dùng API cùng origin. Trong dev, Vite proxy chuyển /api về backend duy nhất;
@@ -12,6 +14,8 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+let redirectingAfterUnauthorized = false;
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -19,6 +23,22 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401 && error.response.data?.message === "Invalid token") {
+      const returnTo = window.location.pathname + window.location.search;
+      clearAuth();
+      if (!redirectingAfterUnauthorized && window.location.pathname !== "/login") {
+        redirectingAfterUnauthorized = true;
+        toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export function formatCurrency(value: number) {
   if (value == null || Number.isNaN(Number(value))) return "0 ₫";
@@ -104,6 +124,7 @@ export type Booking = {
   bookingMode?: "single" | "recurring" | "full_field";
   reservedCourtIds?: number[];
   groupTotal?: number;
+  groupPaidAmount?: number;
   groupSize?: number;
   isGroupPrimary?: boolean;
   fieldName: string;
@@ -139,6 +160,7 @@ export type Booking = {
   refundBankCode?: string;
   refundPayments?: Array<{
     paymentCode: string;
+    bookingGroupId?: string;
     transactionCode?: string;
     gateway: string;
     bankCode?: string;
