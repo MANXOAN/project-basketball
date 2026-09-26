@@ -38,6 +38,16 @@ export function buildCashBookingEmail(booking) {
   };
 }
 
+export function buildComplimentaryBookingEmail(booking) {
+  const code = `BK${String(booking.id).padStart(6, "0")}`;
+  const sessions = Array.isArray(booking.schedule) && booking.schedule.length ? booking.schedule : [booking];
+  const scheduleBlock = `<div style="margin-top:18px;padding:15px;background:#f8fafc;border-radius:12px;"><div style="font-size:12px;font-weight:700;color:#64748b;">CHI TIẾT ${sessions.length > 1 ? `LỊCH ${sessions.length} BUỔI` : "BUỔI ĐẶT SÂN"}</div>${sessions.map((item, index) => `<div style="padding:9px 0;border-bottom:1px solid #e2e8f0;"><b>${sessions.length > 1 ? `Buổi ${index + 1} · ` : ""}${escapeHtml(item.court || booking.court || "Sân")}</b><div style="padding-top:4px;font-size:13px;color:#475569;">${escapeHtml(item.date || booking.date)} · ${escapeHtml(item.time || booking.time)} · ${Number(item.duration || booking.duration || 1)} giờ</div><div style="padding-top:4px;font-size:13px;font-weight:700;color:#047857;">${money(item.total ?? booking.total)}</div></div>`).join("")}</div>`;
+  return {
+    subject: `Đặt sân đã được xác nhận · ${code}`,
+    html: shell(`<tr><td style="padding:26px 32px;background:#0f172a;color:#fff;"><div style="color:#fbbf24;font-size:12px;font-weight:700;letter-spacing:.12em;">GOLDENSTATE BASKETBALL</div><div style="margin-top:7px;font-size:23px;font-weight:700;">Đặt sân đã được xác nhận</div></td></tr><tr><td style="padding:28px 32px 10px;"><p style="margin:0 0 8px;font-size:16px;font-weight:700;">Chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p><p style="margin:0;color:#526176;font-size:14px;line-height:22px;">Đơn đặt sân của bạn đã được xác nhận. Voucher đã thanh toán toàn bộ giá trị đơn.</p></td></tr><tr><td style="padding:20px 32px;"><div style="padding:18px 20px;border:1px solid #e5eaf0;border-radius:14px;background:#fffdf5;"><div style="font-size:12px;color:#64748b;">MÃ CHECK-IN</div><div style="margin-top:4px;font-family:monospace;font-size:22px;font-weight:700;">${code}</div><div style="margin-top:8px;font-size:13px;font-weight:700;color:#047857;">Voucher: ${escapeHtml(booking.voucherCode || "")}</div></div></td></tr><tr><td style="padding:0 32px 30px;"><div style="font-size:12px;font-weight:700;color:#64748b;">LỊCH ĐÃ ĐẶT</div>${scheduleBlock}</td></tr>`),
+  };
+}
+
 export function buildPaymentRefundPendingEmail(booking, payment) {
   const code = `BK${String(booking.id).padStart(6, "0")}`;
   return { subject: `Thông báo hoàn tiền · ${code}`, html: shell(`<tr><td style="padding:30px 32px;"><p>Chào ${escapeHtml(booking.customer?.fullName || "Quý khách")},</p><p>Khoản thanh toán <b>${money(payment.amount)}</b> cho đơn <b>${code}</b> đang được xử lý hoàn tiền.</p></td></tr>`) };

@@ -15,7 +15,7 @@ import { cancelBooking, completeRefund, createBooking, expirePendingPayments, ge
 import { checkBookingAvailability } from "../controllers/bookingAvailability";
 import { processVnpayCallback } from "../services/vnpayPayment";
 import { requestBookingReschedule } from "../services/bookingGroupService";
-import { buildPaymentConfirmationEmail } from "../utils/bookingEmail";
+import { buildCashBookingEmail, buildComplimentaryBookingEmail, buildPaymentConfirmationEmail } from "../utils/bookingEmail";
 import { setCounter } from "../utils/ids";
 import { createVoucher, validateVoucher } from "../controllers/voucher";
 
@@ -560,6 +560,37 @@ async function run() {
     );
     assert(!email.html.includes("<script>"));
     assert(email.html.includes("&lt;script&gt;"));
+
+    const cashEmail = buildCashBookingEmail({
+      id: 500,
+      fieldName: "Cơ sở Test",
+      court: "Sân A",
+      date: "2030-01-01",
+      time: "08:00",
+      total: 100000,
+      groupTotal: 200000,
+      customer: { fullName: "Khách đặt tiền mặt" },
+      schedule: [
+        { date: "2030-01-01", time: "08:00", duration: 1, total: 100000 },
+        { date: "2030-01-08", time: "08:00", duration: 1, total: 100000 },
+      ],
+    });
+    assert(cashEmail.subject.includes("thanh toán tại sân"));
+    assert(cashEmail.html.includes("LỊCH 2 BUỔI"));
+
+    const complimentaryEmail = buildComplimentaryBookingEmail({
+      id: 501,
+      fieldName: "Cơ sở Test",
+      court: "Sân A",
+      date: "2030-01-01",
+      time: "08:00",
+      total: 0,
+      groupTotal: 0,
+      voucherCode: "FREE100",
+      customer: { fullName: "Khách voucher" },
+    });
+    assert(complimentaryEmail.subject.includes("đã được xác nhận"));
+    assert(complimentaryEmail.html.includes("FREE100"));
 
     console.log("Payment flow tests passed");
   } finally {

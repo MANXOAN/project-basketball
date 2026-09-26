@@ -11,6 +11,7 @@ import { nextId } from "../utils/ids";
 import { serialize, serializeMany } from "../utils/serialize";
 import Voucher from "../models/Voucher";
 import { sendMail } from "../utils/mailer";
+import { buildCashBookingEmail, buildComplimentaryBookingEmail } from "../utils/bookingEmail";
 import { bookingModeFor, expandBookingSchedule } from "../services/bookingPlan";
 import { appendBookingHistory, syncBookingGroup } from "../services/bookingGroupService";
 import {
@@ -597,6 +598,25 @@ export async function createBooking(req, res) {
         await BookingSlot.deleteMany({ bookingId: { $in: bookingIds } });
         return res.status(409).json({ message: "Không thể ghi nhận lượt sử dụng voucher" });
       }
+    }
+
+    if ((normalizedPaymentMethod === "cash" || isComplimentaryBooking) &&
+        bookingCustomer.email && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const emailBooking = {
+        ...firstBooking.toObject(),
+        groupTotal: calculatedTotal,
+        schedule: occurrences.map((occurrence, index) => ({
+          ...occurrence,
+          court: courtLabel,
+          total: sessionTotals[index],
+        })),
+      };
+      const message = isComplimentaryBooking
+        ? buildComplimentaryBookingEmail(emailBooking)
+        : buildCashBookingEmail(emailBooking);
+      sendMail(bookingCustomer.email, message.subject, message.html).catch((error) => {
+        console.error("Booking confirmation email failed:", error.message);
+      });
     }
 
     return res.status(201).json({
