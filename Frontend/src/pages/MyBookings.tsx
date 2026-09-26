@@ -117,7 +117,7 @@ export default function MyBookings() {
   const user = useMemo(() => getUser(), []);
 
   const [cancelModal, setCancelModal] = useState({ isOpen: false, bookingId: 0, stk: "", bank: "", paidAmount: 0, refundRate: 0, refundAmount: 0 });
-  const [qrModal, setQrModal] = useState<{ isOpen: boolean; code: string | null; booking?: Booking | null }>({
+  const [qrModal, setQrModal] = useState<{ isOpen: boolean; code: string | null; booking?: Booking | null; sessions?: Booking[]; selectedSession?: Booking | null }>({
     isOpen: false,
     code: null,
     booking: null,
@@ -324,12 +324,12 @@ export default function MyBookings() {
     }
   };
 
-  const openTicket = async (booking: Booking) => {
-    const code = "BK" + String(booking.id).padStart(6, "0");
-    setQrModal({ isOpen: true, code, booking });
+  const openTicket = async (booking: Booking, sessions?: Booking[]) => {
+    const code = sessions && sessions.length > 1 ? "LG" + String(booking.id).padStart(6, "0") : "BK" + String(booking.id).padStart(6, "0");
+    setQrModal({ isOpen: true, code, booking, sessions, selectedSession: null });
     try {
       const response = await api.get<BookingDetail>("/bookings/" + booking.id + "/detail");
-      setQrModal({ isOpen: true, code, booking: response.data });
+      setQrModal({ isOpen: true, code, booking: response.data, sessions, selectedSession: null });
     } catch {
       toast.error("Chưa tải được địa chỉ chi tiết; vé vẫn có thể sử dụng.");
     }
@@ -346,37 +346,46 @@ export default function MyBookings() {
     }
   };
 
-  const extendOneHour = async (b: Booking) => {
-    if (!confirm("Bạn có muốn gia hạn thuê thêm 1 giờ ngay sau khung hiện tại?")) return;
+  const extendOneHour = async (booking: Booking) => {
+    if (!booking.bookingGroupId || !confirm("Bạn có muốn tăng thời lượng buổi này thêm 1 giờ? Hệ thống sẽ kiểm tra trùng lịch và tính phụ thu nếu có.")) return;
     try {
-      const [h, m] = b.time.split(":").map(Number);
-      const startMin = h * 60 + m + (b.duration || 1) * 60;
-      const nh = Math.floor(startMin / 60) % 24;
-      const nm = startMin % 60;
-      const newTime = `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
-      const pricePerHour = b.duration ? Math.round(b.total / b.duration) : b.total;
-
-      await api.post("/bookings", {
-        fieldId: b.fieldId,
-        courtId: b.courtId,
-        fieldName: b.fieldName,
-        court: b.court,
-        date: b.date,
-        time: newTime,
-        duration: 1,
-        total: pricePerHour,
-        customer: b.customer,
-        paymentMethod: "cash",
-        paymentStatus: "unpaid",
-        status: "pending",
-        createdAt: new Date().toISOString(),
+      const response = await api.patch("/booking-groups/" + booking.bookingGroupId + "/children/" + booking.id, {
+        newFieldId: booking.fieldId,
+        newCourtId: booking.courtId,
+        newDate: booking.date,
+        newTime: booking.time,
+        newDuration: Number(booking.duration || 1) + 1,
+        reason: "customer_extend_one_hour",
       });
-      toast.success(`Đã đặt thêm 1 giờ (${newTime}). Vui lòng kiểm tra danh sách!`);
-      load();
-    } catch {
-      toast.error("Không thể gia hạn thêm giờ");
+      if (response.data.status === "requires_payment") {
+        const adjustment = response.data.adjustment;
+        const paymentResponse = await api.post("/vnpay/create-url", {
+          orderId: String(booking.id), amount: adjustment.paymentDelta, paymentKind: "adjustment", adjustmentId: adjustment.id, language: "vn",
+        });
+        window.location.href = paymentResponse.data.paymentUrl;
+        return;
+      }
+      toast.success(response.data.message || "Đã gia hạn buổi này thêm 1 giờ");
+      await load();
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(message || "Không thể gia hạn: khung giờ tiếp theo có thể đã được đặt");
     }
   };
+  const bookingCards = useMemo(() => {
+    const grouped = new Map<string, Booking[]>();
+    bookings.forEach((booking) => {
+      const key = booking.bookingGroupId || `booking-${booking.id}`;
+      const sessions = grouped.get(key) || [];
+      sessions.push(booking);
+      grouped.set(key, sessions);
+    });
+    return [...grouped.entries()].map(([key, sessions]) => ({
+      key,
+      sessions: sessions.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.id - b.id),
+    })).sort((a, b) => newestBookingFirst(a.sessions[0], b.sessions[0]));
+  }, [bookings]);
+
 
   if (loading) {
     return (
@@ -455,7 +464,8 @@ export default function MyBookings() {
           </div>
         ) : (
           <div className="space-y-4">
-            {bookings.map((b) => {
+            {bookingCards.map(({ key, sessions }) => {
+              const b = sessions.find((session) => session.status !== "cancelled") || sessions[0];
               const st = statusConfig[b.status] || statusConfig.pending;
               const bookingCode = `BK${String(b.id).padStart(6, "0")}`;
               const canCancel = b.status === "pending" || b.status === "confirmed";
@@ -464,7 +474,7 @@ export default function MyBookings() {
 
               return (
                 <div
-                  key={b.id}
+                  key={key}
                   className="bg-white rounded-3xl border border-slate-200 overflow-hidden hover:border-amber-300 transition-all shadow-sm group"
                 >
                   {/* Card Header */}
@@ -472,7 +482,7 @@ export default function MyBookings() {
                     <div className="flex items-center gap-3">
                       <div className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />
                       <span className="font-mono font-bold text-slate-900 text-base">{bookingCode}</span>
-                      {b.groupSize && b.groupSize > 1 && <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">Đơn đặt sân tổng · buổi con</span>}
+                      {sessions.length > 1 && <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white">Lịch dài hạn · {sessions.length} buổi</span>}
                       <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full ${st.className}`}>
                         {st.icon}
                         {st.label}
@@ -511,6 +521,24 @@ export default function MyBookings() {
                         </div>
                       </div>
                     </div>
+
+                    {sessions.length > 1 && (
+                      <section className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4" aria-label="Các buổi trong lịch dài hạn">
+                        <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-sm font-black text-slate-950">Lịch đã đặt</h3><span className="text-xs font-bold text-slate-500">{sessions.length} buổi</span></div>
+                        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                          {sessions.map((session, index) => (
+                            <div key={session.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div><div className="text-sm font-bold text-slate-900">Buổi {index + 1} · {session.date} · {session.time}</div><div className="mt-1 text-xs text-slate-500">{session.duration || 1} giờ · {formatCurrency(session.total)} · {statusConfig[session.status]?.label || session.status}</div></div>
+                              <div className="flex flex-wrap gap-2">
+                                <button type="button" onClick={() => openTicket(session)} className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700">Mở vé</button>
+                                {session.bookingGroupId && ["pending", "confirmed"].includes(session.status) && <button type="button" onClick={() => openReschedule(session)} className="min-h-11 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Đổi buổi</button>}
+                                {["pending", "confirmed"].includes(session.status) && <button type="button" onClick={() => openCancelModal(session)} className="min-h-11 rounded-lg border border-rose-200 px-3 text-xs font-bold text-rose-600">Hủy buổi</button>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    )}
 
                     {(b.status === "cancelled" || b.refundStatus === "pending" || b.refundStatus === "completed") && (
                       <div
@@ -573,7 +601,7 @@ export default function MyBookings() {
                         {b.status !== "cancelled" && (
                         <button
                           type="button"
-                          onClick={() => openTicket(b)}
+                          onClick={() => openTicket(b, sessions)}
                           className="bg-slate-950 hover:bg-amber-400 hover:text-slate-950 text-white border border-slate-900 text-xs font-bold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5"
                         >
                           <QrCode className="w-3.5 h-3.5" />
@@ -635,7 +663,7 @@ export default function MyBookings() {
         {qrModal.isOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Vé check-in điện tử">
             <div className="w-full max-w-2xl py-8">
-              {qrModal.booking && <BookingPass booking={qrModal.booking} code={qrModal.code || undefined} />}
+              {qrModal.booking && (qrModal.selectedSession ? <BookingPass booking={qrModal.selectedSession} /> : <BookingPass booking={qrModal.booking} code={qrModal.code || undefined} sessions={qrModal.sessions} onSessionSelect={(session) => setQrModal((current) => ({ ...current, selectedSession: session }))} />)}
               <button
                 type="button"
                 onClick={() => setQrModal({ isOpen: false, code: null, booking: null })}

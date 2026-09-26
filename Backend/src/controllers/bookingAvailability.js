@@ -50,8 +50,8 @@ export async function checkBookingAvailability(req, res) {
     if (req.body.bookingMode === "full_field" && targetCourtIds.length < 2) {
       return res.status(400).json({ message: "Cơ sở cần ít nhất 2 sân con đang hoạt động để bao sân" });
     }
-    const normalized = occurrences.map((item) => ({ date: String(item?.date || ""), time: String(item?.time || "") }));
-    if (normalized.some((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !validTime(item.time))) {
+    const normalized = occurrences.map((item) => ({ date: String(item?.date || ""), time: String(item?.time || ""), duration: item?.duration == null ? duration : Number(item.duration) }));
+    if (normalized.some((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !validTime(item.time) || !Number.isFinite(item.duration) || item.duration <= 0 || item.duration > 8)) {
       return res.status(400).json({ message: "Ngày hoặc giờ cần kiểm tra không hợp lệ" });
     }
 
@@ -63,14 +63,15 @@ export async function checkBookingAvailability(req, res) {
     const conflicts = [];
 
     normalized.forEach((occurrence) => {
-      const desiredSlots = slotTimes(occurrence.time, duration);
-      const busy = targetCourtIds.some((targetCourtId) => desiredSlots.some((slot) => occupied.has(`${targetCourtId}|${occurrence.date}|${slot}`)));
+      const desiredSlots = slotTimes(occurrence.time, occurrence.duration);
+      const outsideOpeningHours = toMinutes(occurrence.time) < open || toMinutes(occurrence.time) + occurrence.duration * 60 > close;
+      const busy = outsideOpeningHours || targetCourtIds.some((targetCourtId) => desiredSlots.some((slot) => occupied.has(`${targetCourtId}|${occurrence.date}|${slot}`)));
       if (!busy) return;
       const suggestions = [];
-      for (let minute = open; minute + duration * 60 <= close; minute += 30) {
+      for (let minute = open; minute + occurrence.duration * 60 <= close; minute += 30) {
         const candidate = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
         if (vietnamStartMs(occurrence.date, candidate) <= Date.now()) continue;
-        const candidateSlots = slotTimes(candidate, duration);
+        const candidateSlots = slotTimes(candidate, occurrence.duration);
         const candidateBusy = targetCourtIds.some((targetCourtId) => candidateSlots.some((slot) => occupied.has(`${targetCourtId}|${occurrence.date}|${slot}`)));
         if (!candidateBusy) suggestions.push(candidate);
         if (suggestions.length === 6) break;

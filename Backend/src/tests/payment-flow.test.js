@@ -223,6 +223,16 @@ async function run() {
     assert.equal(availabilityResponse.result.statusCode, 200);
     assert.equal(availabilityResponse.result.body.available, false);
     assert.equal(availabilityResponse.result.body.conflicts.length, 1);
+
+    const durationAwareAvailability = responseRecorder();
+    await checkBookingAvailability({
+      body: {
+        courtId: 11, duration: 0.5, bookingMode: "court",
+        occurrences: [{ date: "2030-01-05", time: "07:00", duration: 1.5 }],
+      },
+    }, durationAwareAvailability.res);
+    assert.equal(durationAwareAvailability.result.statusCode, 200);
+    assert.equal(durationAwareAvailability.result.body.available, false);
     assert.equal(availabilityResponse.result.body.conflicts[0].date, "2030-01-05");
     assert(availabilityResponse.result.body.conflicts[0].suggestions.length > 0);
 
@@ -231,7 +241,7 @@ async function run() {
       user: { id: 53, email: "adjusted@example.com", fullName: "Khách đổi giờ", role: "user" },
       body: {
         fieldId: 10, courtId: 13, date: "2030-04-10", time: "15:00", duration: 1,
-        occurrences: [{ date: "2030-04-10", time: "15:00" }, { date: "2030-04-17", time: "16:00" }],
+        occurrences: [{ date: "2030-04-10", time: "15:00", duration: 1 }, { date: "2030-04-17", time: "16:00", duration: 1.5 }],
         customer: { fullName: "Khách đổi giờ", phone: "0922222222" },
         services: [], paymentMethod: "cash",
       },
@@ -239,6 +249,9 @@ async function run() {
     assert.equal(adjustedScheduleResponse.result.statusCode, 201);
     const adjustedMembers = await Booking.find({ bookingGroupId: adjustedScheduleResponse.result.body.bookingGroupId }).sort({ date: 1 });
     assert.deepEqual(adjustedMembers.map((item) => item.time), ["15:00", "16:00"]);
+    assert.deepEqual(adjustedMembers.map((item) => item.duration), [1, 1.5]);
+    assert.equal(adjustedMembers.reduce((sum, item) => sum + item.total, 0), 200000);
+    assert.equal(await BookingSlot.countDocuments({ bookingId: { $in: adjustedScheduleResponse.result.body.bookingIds } }), 5);
 
     const detailResponse = responseRecorder();
     await getBookingDetail({

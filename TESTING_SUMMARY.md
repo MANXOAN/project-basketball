@@ -248,3 +248,25 @@ Sau thanh toán nhóm, tất cả booking thành viên và `bookinggroups` phả
 - Đổi `VNP_HASH_SECRET` nếu giá trị cũ là credential thật.
 - Không gửi `.env` qua chat và không commit lại file này.
 - Secret cũ vẫn tồn tại trong lịch sử Git; việc đổi credential là bắt buộc.
+
+## 17. UI lịch dài hạn phục hồi sau conflict (`code_269`)
+
+Các phần cần pull và test lại:
+
+- Màn đặt sân có đủ `Một buổi`, `Hằng ngày`, `Hàng tuần`, `Trọn tháng`; lịch tối đa 60 buổi.
+- Danh sách lịch hiển thị ngày, giờ và thời lượng từng buổi; lịch trên 12 buổi có nút xem/thu gọn toàn bộ.
+- Nút `Sửa` cho phép đổi riêng ngày, giờ, thời lượng của một buổi. Trước khi sang bước tiếp theo và trước khi tạo đơn, FE gọi API kiểm tra toàn bộ lịch; buổi trùng trả về giờ thay thế hoặc cho phép bỏ riêng buổi đó.
+- Backend lưu `duration` riêng cho mỗi booking con, khóa đúng số slot 30 phút và tính giá/tỷ lệ voucher theo giá trị từng buổi. Không cần thêm collection hay migrate DB; MongoDB dùng các field hiện có.
+- `Đơn của tôi` gom các booking cùng `bookingGroupId` thành một card lịch dài hạn, hiển thị danh sách buổi và cho mở vé/đổi/hủy từng buổi.
+- Vé tổng hiển thị toàn bộ lịch; chọn một dòng sẽ mở vé QR của buổi tương ứng.
+- `Thuê thêm 1h` không còn tạo đơn tiền mặt rời. Hệ thống dùng luồng điều chỉnh booking group, kiểm tra slot và chuyển VNPay nếu có phụ thu.
+
+Checklist nhanh:
+
+1. Đặt lịch hằng ngày, hằng tuần và trọn tháng; xác nhận số buổi ở Paygate khớp số document `bookings`.
+2. Sửa một buổi thành thời lượng khác, kiểm tra tổng tiền FE = `bookinggroups.total` và số `bookingslots` đúng (1 giờ = 2 slot, 1,5 giờ = 3 slot).
+3. Chọn một buổi đã kín; phải thấy thông báo trùng cùng gợi ý giờ khác, không được tạo thiếu một phần lịch.
+4. Vào `Đơn của tôi`; mỗi nhóm chỉ có một card, mở được vé tổng và vé con, đổi/hủy một buổi không ảnh hưởng các buổi còn lại.
+5. Gia hạn một buổi; nếu giờ tiếp theo đã kín thì giữ nguyên đơn cũ, nếu có phụ thu thì đi qua thanh toán adjustment.
+
+Kiểm tra tự động sau khi phục hồi: payment/booking flow, RBAC, venue management, TypeScript, ESLint tập trung và production build đều pass.

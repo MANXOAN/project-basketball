@@ -22,7 +22,11 @@ export function expandBookingSchedule({ date, recurringDates, time, scheduleSegm
   }
   if (Array.isArray(explicitOccurrences) && explicitOccurrences.length) {
     explicitOccurrences.forEach((occurrence) => {
-      occurrences.push({ date: String(occurrence?.date || ""), time: String(occurrence?.time || ""), segmentIndex: 0 });
+      const occurrenceDuration = occurrence?.duration == null ? undefined : Number(occurrence.duration);
+      if (occurrenceDuration !== undefined && (!Number.isFinite(occurrenceDuration) || occurrenceDuration <= 0 || occurrenceDuration > 8)) {
+        throw new Error("Thời lượng từng buổi không hợp lệ");
+      }
+      occurrences.push({ date: String(occurrence?.date || ""), time: String(occurrence?.time || ""), duration: occurrenceDuration, segmentIndex: 0 });
     });
   } else if (Array.isArray(scheduleSegments) && scheduleSegments.length) {
     if (scheduleSegments.length > 12) {

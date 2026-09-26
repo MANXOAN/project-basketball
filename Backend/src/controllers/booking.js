@@ -124,6 +124,20 @@ function splitAmount(amount, count, index) {
   return base + (index < whole % count ? 1 : 0);
 }
 
+function allocateAmountByWeights(amount, weights) {
+  const whole = Math.max(0, Math.round(Number(amount) || 0));
+  const weightTotal = weights.reduce((sum, weight) => sum + Math.max(0, Number(weight) || 0), 0);
+  if (!weights.length) return [];
+  if (!weightTotal) return weights.map((_weight, index) => splitAmount(whole, weights.length, index));
+  const exact = weights.map((weight) => whole * Math.max(0, Number(weight) || 0) / weightTotal);
+  const shares = exact.map(Math.floor);
+  let remainder = whole - shares.reduce((sum, share) => sum + share, 0);
+  const order = exact.map((share, index) => ({ index, remainder: share - shares[index] }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (let index = 0; remainder > 0; index += 1, remainder -= 1) shares[order[index % order.length].index] += 1;
+  return shares;
+}
+
 async function releaseVoucherUsageForGroups(groupIds) {
   if (!groupIds.length) return;
   const groups = await BookingGroup.find({
@@ -367,9 +381,10 @@ export async function createBooking(req, res) {
 
     const occurrences = expandBookingSchedule({ date, recurringDates, time, scheduleSegments, occurrences: explicitOccurrences });
     const dur = Number(duration) || 1;
+    const sessionDurations = occurrences.map((occurrence) => Number(occurrence.duration ?? dur));
     const numericCourtId = Number(courtId);
     const numericFieldId = Number(fieldId);
-    if (!Number.isFinite(dur) || dur <= 0 || dur > 8) {
+    if (!Number.isFinite(dur) || dur <= 0 || dur > 8 || sessionDurations.some((value) => !Number.isFinite(value) || value <= 0 || value > 8)) {
       return res.status(400).json({ message: "Thời lượng đặt sân không hợp lệ" });
     }
     const elapsedOccurrence = pastOccurrence(occurrences);
@@ -401,9 +416,9 @@ export async function createBooking(req, res) {
 
     const open = toMin(selectedField.openTime || "06:00");
     const close = toMin(selectedField.closeTime || "22:00");
-    for (const occurrence of occurrences) {
+    for (const [index, occurrence] of occurrences.entries()) {
       const start = toMin(occurrence.time);
-      if (!validTime(occurrence.time) || start < open || start + dur * 60 > close) {
+      if (!validTime(occurrence.time) || start < open || start + sessionDurations[index] * 60 > close) {
         return res.status(400).json({
           message: `Khung giờ ngày ${occurrence.date} phải nằm trong giờ hoạt động ${selectedField.openTime}–${selectedField.closeTime}`,
         });
@@ -413,7 +428,9 @@ export async function createBooking(req, res) {
     const normalizedServices = sanitizeServices(services);
     const servicesTotal = normalizedServices.reduce((sum, service) => sum + service.price * service.quantity, 0);
     const hourlyRate = reservableCourts.reduce((sum, court) => sum + Number(court.price || 0), 0);
-    const grossTotal = Math.round(hourlyRate * dur * occurrences.length + servicesTotal);
+    const serviceShares = occurrences.map((_occurrence, index) => splitAmount(servicesTotal, occurrences.length, index));
+    const sessionGrossTotals = occurrences.map((_occurrence, index) => Math.round(hourlyRate * sessionDurations[index] + serviceShares[index]));
+    const grossTotal = sessionGrossTotals.reduce((sum, value) => sum + value, 0);
     const normalizedVoucherCode = normalizeVoucherCode(voucherCode);
     let voucher = null;
     let calculatedDiscount = 0;
@@ -427,6 +444,8 @@ export async function createBooking(req, res) {
       calculatedDiscount = calculateVoucherDiscount(voucher, grossTotal);
     }
     const calculatedTotal = Math.max(0, grossTotal - calculatedDiscount);
+    const sessionDiscounts = allocateAmountByWeights(calculatedDiscount, sessionGrossTotals);
+    const sessionTotals = sessionGrossTotals.map((value, index) => value - sessionDiscounts[index]);
 
     const suppliedCustomer = customer && typeof customer === "object" ? customer : {};
     const requesterIsStaff = isStaff(req.user);
@@ -456,7 +475,7 @@ export async function createBooking(req, res) {
     const reservedCourtIds = reservableCourts.map((court) => Number(court.id));
     const locks = occurrences.flatMap((occurrence, index) =>
       reservedCourtIds.flatMap((reservedCourtId) =>
-        slotTimes(occurrence.time, dur).map((slot) => ({
+        slotTimes(occurrence.time, sessionDurations[index]).map((slot) => ({
           bookingId: bookingIds[index],
           courtId: reservedCourtId,
           date: occurrence.date,
@@ -499,8 +518,8 @@ export async function createBooking(req, res) {
           court: courtLabel,
           date: occurrence.date,
           time: occurrence.time,
-          duration: dur,
-          total: splitAmount(calculatedTotal, occurrences.length, index),
+          duration: sessionDurations[index],
+          total: sessionTotals[index],
           customer: bookingCustomer,
           services: normalizedServices,
           paymentMethod: normalizedPaymentMethod,
@@ -509,7 +528,7 @@ export async function createBooking(req, res) {
           paymentExpiresAt,
           status: isComplimentaryBooking ? "confirmed" : "pending",
           voucherCode: normalizedVoucherCode,
-          discount: splitAmount(calculatedDiscount, occurrences.length, index),
+          discount: sessionDiscounts[index],
           createdBy: Number(req.user.id),
           createdAt: new Date().toISOString(),
         });
@@ -542,7 +561,7 @@ export async function createBooking(req, res) {
         source: req.user.role === "manager" || req.user.role === "admin" ? req.user.role : "user",
         reason: "booking_created",
         fieldBefore: null,
-        fieldAfter: { fieldId: numericFieldId, courtId: numericCourtId, date: occurrence.date, time: occurrence.time, duration: dur, total: splitAmount(calculatedTotal, occurrences.length, index) },
+        fieldAfter: { fieldId: numericFieldId, courtId: numericCourtId, date: occurrence.date, time: occurrence.time, duration: sessionDurations[index], total: sessionTotals[index] },
         statusAfter: isComplimentaryBooking ? "confirmed" : "pending",
       })));
     } catch (error) {
@@ -587,7 +606,7 @@ export async function createBooking(req, res) {
       groupTotal: calculatedTotal,
       groupSize: occurrences.length,
       reservedCourtIds,
-      schedule: occurrences,
+      schedule: occurrences.map((occurrence, index) => ({ ...occurrence, duration: sessionDurations[index] })),
     });
   } catch (e) {
     return res.status(400).json({ message: e.message });
